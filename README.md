@@ -1,10 +1,11 @@
 # nes-clock
-A 24-hour 7-segment clock for the [NES](https://en.wikipedia.org/wiki/Nintendo_Entertainment_System). Runs at 60.1 frames per second. Actual size: PRG ROM 1 KiB, CHR ROM 512 bytes.
+A 24-hour 7-segment clock for the [NES](https://en.wikipedia.org/wiki/Nintendo_Entertainment_System). Assembles with [ASM6](https://www.romhacking.net/utilities/674/).
 
-![screenshot](clock.png)
+![screenshot](snap.png)
 
 Table of contents:
 * [List of files](#list-of-files)
+* [Technical info](#technical-info)
 * [How to assemble](#how-to-assemble)
 * [How to use](#how-to-use)
 * [To do](#to-do)
@@ -17,6 +18,14 @@ Table of contents:
 * `clock.asm`: source code (ASM6)
 * `clock.nes.gz`: assembled program (iNES format, gzip compressed)
 * `snap.png`: screenshot
+
+## Technical info
+* mapper: NROM
+* PRG ROM: 16 KiB (only 1 KiB is actually used)
+* CHR ROM: 8 KiB (only 512 bytes are actually used)
+* name table mirroring: does not matter
+* extra RAM: no
+* compatibility: NTSC only (the clock runs at 60.1 fps)
 
 ## How to assemble
 * get the CHR ROM data:
