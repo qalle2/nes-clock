@@ -6,15 +6,11 @@ A 24-hour 7-segment clock for the [NES](https://en.wikipedia.org/wiki/Nintendo_E
 Table of contents:
 * [List of files](#list-of-files)
 * [Technical info](#technical-info)
-* [How to assemble](#how-to-assemble)
 * [How to use](#how-to-use)
 * [To do](#to-do)
 
 ## List of files
 * `assemble.sh`: a Linux script that assembles the program (warning: deletes files)
-* `chr.bin.gz`: CHR ROM data (gzip compressed)
-* `chr-new.png`: a sketch for new CHR data
-* `chr.png`: CHR data as an image
 * `clock.asm`: source code (ASM6)
 * `clock.nes.gz`: assembled program (iNES format, gzip compressed)
 * `snap.png`: screenshot
@@ -22,16 +18,10 @@ Table of contents:
 ## Technical info
 * mapper: NROM
 * PRG ROM: 16 KiB (only 1 KiB is actually used)
-* CHR ROM: 8 KiB (only 256 bytes are actually used)
+* CHR ROM: 0 KiB (uses CHR RAM)
 * name table mirroring: does not matter
 * extra RAM: no
 * compatibility: NTSC only (the clock runs at 60.1 fps)
-
-## How to assemble
-* get the CHR ROM data:
-  * either extract `chr.bin.gz`&hellip;
-  * &hellip;or encode it yourself: `python3 nes_chr_encode.py chr.png chr.bin` (you need `nes_chr_encode.py` and its dependencies from my [NES utilities](https://github.com/qalle2/nes-util))
-* assemble: `asm6 clock.asm clock.nes`
 
 ## How to use
 There are two modes:
@@ -46,7 +36,3 @@ There are two modes:
   * time advances
   * cursor is hidden
   * press start to switch to adjust mode
-
-## To do
-* make digits 3&times;5 tiles instead of 2&times;4 (use `chr-new.png`)
-* use CHR RAM instead of CHR ROM

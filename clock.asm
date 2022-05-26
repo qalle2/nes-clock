@@ -33,8 +33,8 @@ joypad2         equ $4017
 ; colors
 color_bg        equ $0f  ; background (black)
 color_dim       equ $18  ; dim        (dark yellow)
-color_bright    equ $28  ; bright     (yellow)
 color_unused    equ $30  ; unused     (white)
+color_bright    equ $28  ; bright     (yellow)
 
 tile_dot        equ $01  ; dot (in colons)
 tile_cursor     equ $02  ; cursor (up arrow)
@@ -44,7 +44,7 @@ tile_cursor     equ $02  ; cursor (up arrow)
                 ; see https://wiki.nesdev.org/w/index.php/INES
                 base $0000
                 db "NES", $1a            ; file id
-                db 1, 1                  ; 16 KiB PRG ROM, 8 KiB CHR ROM
+                db 1, 0                  ; 16 KiB PRG ROM, 0 KiB CHR ROM (uses CHR RAM)
                 db %00000000, %00000000  ; NROM mapper, horizontal name table mirroring
                 pad $0010, $00           ; unused
 
@@ -85,10 +85,10 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
 
                 jsr wait_vbl_start      ; wait until next VBlank starts
 
-                ldy #$3f                ; set up palette (while still in VBlank; copy same
-                lda #$00                ; 4 colors backwards to all subpalettes)
-                jsr set_ppu_addr
-                ldy #8
+                ldy #$3f                ; set up palette (while still in VBlank)
+                jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
+                ;
+                ldy #8                  ; copy same 4 colors backwards to all subpalettes
 --              ldx #(4-1)
 -               lda palette,x
                 sta ppu_data
@@ -97,9 +97,17 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 dey
                 bne --
 
+                ldy #$00                ; copy pattern table data
+                jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
+                ;
+-               lda pt_data,y
+                sta ppu_data
+                iny
+                bne -
+
                 ldy #$20                ; clear name/attribute table 0 (4*256 bytes)
-                lda #$00
-                jsr set_ppu_addr
+                jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
+                ;
                 ldy #4
 --              tax
 -               sta ppu_data
@@ -124,7 +132,30 @@ init_spr_data   ; initial sprite data (Y, tile, attributes, X)
                 db $76-1, tile_dot,    %00000000, $a4  ; #3: bottom dot between minute & second
                 db $90-1, tile_cursor, %00000000, $18  ; #4: cursor
 
-palette         db color_unused, color_bright, color_dim, color_bg  ; backwards to all subpalettes
+palette         db color_bright, color_unused, color_dim, color_bg  ; backwards to all subpalettes
+
+pt_data         ; pattern table data
+                ; notes:
+                ; - we use colors 0/1/3 instead 0/1/2 to achieve better compression
+                ; - top tip of segment is at bottom of tile and vice versa;
+                ;   same for left/right tip
+                ;
+                hex 0000000000000000 0000000000000000  ; tile $00: blank
+                hex 00003c3c3c3c0000 0000183c3c180000  ; tile $01: dot (used in colons)
+                hex 183c7eff18181818 00183c7e18181800  ; tile $02: cursor (up arrow)
+                hex 00ffffffffffff00 00ffffffffffff00  ; tile $03: middle of horizontal segment
+                hex 7e7e7e7e7e7e7e7e 7e7e7e7e7e7e7e7e  ; tile $04: middle of vertical segment
+                hex 0000000000183c7e 000000000000183c  ; tile $05: seg tip - top
+                hex 7e3c180000000000 3c18000000000000  ; tile $06: seg tip - bottom
+                hex 7e3c180000183c7e 3c1800000000183c  ; tile $07: seg tip - bottom & top
+                hex 0001030707030100 0000010303010000  ; tile $08: seg tip - left
+                hex 00010307071b3d7e 000001030301183c  ; tile $09: seg tip - left & top
+                hex 7e3d1b0707030100 3c18010303010000  ; tile $0a: seg tip - left & bottom
+                hex 7e3d1b07071b3d7e 3c1801030301183c  ; tile $0b: seg tip - left & bottom & top
+                hex 0080c0e0e0c08000 000080c0c0800000  ; tile $0c: seg tip - right
+                hex 0080c0e0e0d8bc7e 000080c0c080183c  ; tile $0d: seg tip - right & top
+                hex 7ebcd8e0e0c08000 3c1880c0c0800000  ; tile $0e: seg tip - right & bottom
+                hex 7ebcd8e0e0d8bc7e 3c1880c0c080183c  ; tile $0f: seg tip - right & bottom & top
 
 ; --- Main loop - common --------------------------------------------------------------------------
 
@@ -392,6 +423,7 @@ times5          db  0,  5, 10, 15, 20, 25  ; multiply 0...17 by 5
 
 ; --- Subs & arrays used in many places -----------------------------------------------------------
 
+set_ppu_addr_pg lda #$00                ; clear A and set PPU address page from Y
 set_ppu_addr    sty ppu_addr            ; set PPU address from Y and A
                 sta ppu_addr
                 rts
@@ -411,10 +443,3 @@ max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of digits
 
                 pad $fffa, $ff
                 dw nmi, reset, irq      ; note: IRQ unused
-
-; --- CHR ROM -------------------------------------------------------------------------------------
-
-                base $0000
-                incbin "chr.bin"
-                pad $0200, $ff          ; 512 bytes should be enough for anybody
-                pad $2000, $ff
