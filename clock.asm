@@ -1,23 +1,19 @@
 ; Clock (NES, NTSC, ASM6)
-; TODO:
-; - store & write segments vertically instead of horizontally to save VBlank time?
-; - make each digit 3*5 tiles?
 
 ; --- Constants -----------------------------------------------------------------------------------
 
-; note: "segment tile pair buffer" = which segment pairs to draw on next VBlank
+; note: VRAM buffer = which segments to draw on next VBlank
 
 ; RAM
-seg_buf_left    equ $00    ; segment tile pair buffer - left  tiles (6*4 = 24 = $18 bytes)
-seg_buf_right   equ $18    ; segment tile pair buffer - right tiles (6*4 = 24 = $18 bytes)
-digits          equ $30    ; digits of time (6 bytes, from tens of hour to ones of minute)
-clock_running   equ $36    ; is clock running? (MSB: 0=no, 1=yes)
-run_main_loop   equ $37    ; is main loop allowed to run? (MSB: 0=no, 1=yes)
-pad_status      equ $38    ; joypad status
-prev_pad_status equ $39    ; previous joypad status
-cursor_pos      equ $3a    ; cursor position (0-5)
-frame_counter   equ $3b    ; frames left in current second (0-61)
-temp            equ $3c    ; temporary
+vram_buffer     equ $00    ; VRAM buffer (6 digits * 3 columns * 5 rows = 90 = $5a bytes)
+digits          equ $5a    ; digits of time (6 bytes, from tens of hour to ones of minute)
+clock_running   equ $60    ; is clock running? (MSB: 0=no, 1=yes)
+run_main_loop   equ $61    ; is main loop allowed to run? (MSB: 0=no, 1=yes)
+pad_status      equ $62    ; joypad status
+prev_pad_status equ $63    ; previous joypad status
+cursor_pos      equ $64    ; cursor position (0-5)
+frame_counter   equ $65    ; frames left in current second (0-61)
+temp            equ $66    ; temporary
 sprite_data     equ $0200  ; OAM page ($100 bytes)
 
 ; memory-mapped registers
@@ -122,11 +118,11 @@ wait_vbl_start  bit ppu_status          ; wait until next VBlank starts
                 rts
 
 init_spr_data   ; initial sprite data (Y, tile, attributes, X)
-                db $66-1, tile_dot,    %00000000, $5c  ; #0: top    dot between hour   & minute
-                db $73-1, tile_dot,    %00000000, $5c  ; #1: bottom dot between hour   & minute
-                db $66-1, tile_dot,    %00000000, $94  ; #2: top    dot between minute & second
-                db $73-1, tile_dot,    %00000000, $94  ; #3: bottom dot between minute & second
-                db $88-1, tile_cursor, %00000000, $34  ; #4: cursor
+                db $6a-1, tile_dot,    %00000000, $54  ; #0: top    dot between hour   & minute
+                db $76-1, tile_dot,    %00000000, $54  ; #1: bottom dot between hour   & minute
+                db $6a-1, tile_dot,    %00000000, $a4  ; #2: top    dot between minute & second
+                db $76-1, tile_dot,    %00000000, $a4  ; #3: bottom dot between minute & second
+                db $90-1, tile_cursor, %00000000, $18  ; #4: cursor
 
 palette         db color_unused, color_bright, color_dim, color_bg  ; backwards to all subpalettes
 
@@ -150,73 +146,79 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 rol pad_status
                 bcc -
 
-                ; copy from segment_tiles to segment buffers (2*1 tiles/round, 2*4 tiles/digit)
-                ; note: 6502 has LDA/STA zp,x but no LDA/STA zp,y; using X as destination index
-                ; and Y as temporary variable instead of vice versa saves 1 byte
+                ; set up VRAM buffer
                 ;
-                ldx #(6*4-1)            ; X = tile pair index
+                lda digits+0            ; tens of hour
+                ldx #0*3*5
+                jsr digit_to_vrbuf
                 ;
--               txa                     ; source index: Y = ((digits[Y>>2] << 2) | (Y&3)) << 1
-                lsr a
-                lsr a
-                tay
-                lda digits,y
-                asl a
-                asl a
-                sta temp
-                txa
-                and #%00000011
-                ora temp
-                asl a
-                tay
+                lda digits+1            ; ones of hour
+                ldx #1*3*5
+                jsr digit_to_vrbuf
                 ;
-                lda segment_tiles+0,y
-                sta seg_buf_left,x
-                lda segment_tiles+1,y
-                sta seg_buf_right,x
+                lda digits+2            ; tens of minute
+                ldx #2*3*5
+                jsr digit_to_vrbuf
                 ;
-                dex
-                bpl -
+                lda digits+3            ; ones of minute
+                ldx #3*3*5
+                jsr digit_to_vrbuf
+                ;
+                lda digits+4            ; tens of second
+                ldx #4*3*5
+                jsr digit_to_vrbuf
+                ;
+                lda digits+5            ; ones of second
+                ldx #5*3*5
+                jsr digit_to_vrbuf
 
                 bit clock_running       ; run mode-specific code
-                bpl main_adj_mode
-                jmp main_run_mode
+                bmi +
+                jmp main_adj_mode
++               jmp main_run_mode
 
-segment_tiles   ; In each digit, segments (A-G) correspond to tile slots (grid, 0-7) like this:
-                ;   +-----+-----+
-                ;   |  AAA|AAA  |
-                ; 0 |  AAA|AAA  | 1
-                ;   |BB   |   CC|
-                ;   +-----+-----+
-                ;   |BB   |   CC|
-                ; 2 |BB   |   CC| 3
-                ;   |  DDD|DDD  |
-                ;   +-----+-----+
-                ;   |  DDD|DDD  |
-                ; 4 |EE   |   FF| 5
-                ;   |EE   |   FF|
-                ;   +-----+-----+
-                ;   |EE   |   FF|
-                ; 6 |  GGG|GGG  | 7
-                ;   |  GGG|GGG  |
-                ;   +-----+-----+
+digit_to_vrbuf  asl a                   ; read 15 (3*5) nybbles from segment_tiles,
+                asl a                   ; write 15 tiles to VRAM buffer
+                asl a                   ; in: A = value of digit (0-9), X = target index start
+                tay
                 ;
-                ; Tiles allowed in each tile slot (in addition to 00 or blank tile):
-                ;     0: 04-06; 1: 07-09; 2: 0a-0c; 3: 0d-0f
-                ;     4: 14-16; 5: 17-19; 6: 1a-1c; 7: 1d-1f
+-               lda segment_tiles,y
+                lsr a
+                lsr a
+                lsr a
+                lsr a
+                sta vram_buffer,x
+                inx
                 ;
-                ;    0  1  2  3  4  5  6  7  <- tile slot
-                ;   -- -- -- -- -- -- -- --
-                hex 06 09 0b 0d 15 17 1c 1f  ; "0"
-                hex 00 07 00 0d 00 17 00 1d  ; "1"
-                hex 04 09 0a 0f 16 18 1c 1e  ; "2"
-                hex 04 09 0a 0f 14 19 1a 1f  ; "3"
-                hex 05 07 0c 0f 14 19 00 1d  ; "4"
-                hex 06 08 0c 0e 14 19 1a 1f  ; "5"
-                hex 06 08 0c 0e 16 19 1c 1f  ; "6"
-                hex 06 09 0b 0d 00 17 00 1d  ; "7"
-                hex 06 09 0c 0f 16 19 1c 1f  ; "8"
-                hex 06 09 0c 0f 14 19 1a 1f  ; "9"
+                tya                     ; exit in the middle of 8th round
+                and #%00000111
+                cmp #%00000111
+                beq +
+                ;
+                lda segment_tiles,y
+                and #%00001111
+                sta vram_buffer,x
+                inx
+                ;
+                iny
+                bpl -                   ; unconditional
+                ;
++               rts
+
+segment_tiles   ; Digits are 3*5 tiles. Tile slots: 0 = top left, 4 = bottom left, etc.
+                ; Slots 6 & 8 are always empty; slot 15 is for padding only.
+                ; Nybbles = tiles in slots 0-15 for each digit.
+                ;
+                hex 94 74 a3 00 03 d4 74 e0  ; "0"
+                hex 00 00 00 00 00 54 74 60  ; "1"
+                hex 80 94 a3 03 03 d4 e0 c0  ; "2"
+                hex 80 80 83 03 03 d4 f4 e0  ; "3"
+                hex 54 a0 00 03 00 54 f4 60  ; "4"
+                hex 94 a0 83 03 03 c0 d4 e0  ; "5"
+                hex 94 b4 a3 03 03 c0 d4 e0  ; "6"
+                hex 80 00 03 00 00 d4 74 60  ; "7"
+                hex 94 b4 a3 03 03 d4 f4 e0  ; "8"
+                hex 94 a0 83 03 03 d4 f4 e0  ; "9"
 
 ; --- Main loop - adjust mode ---------------------------------------------------------------------
 
@@ -281,7 +283,7 @@ buttons_done    ldx cursor_pos          ; update cursor sprite X
                 sta sprite_data+4*4+3
                 jmp main_loop           ; return to common main loop
 
-cursor_x        hex 34 4c 6c 84 a4 bc   ; cursor sprite X positions
+cursor_x        hex 18 40 68 90 b8 e0   ; cursor sprite X positions
 
 ; --- Main loop - run mode ------------------------------------------------------------------------
 
@@ -337,16 +339,30 @@ nmi             pha                     ; push A, X, Y
                 lda #>sprite_data
                 sta oam_dma
 
-                ; print digit segments from buffer (2*1 tiles/round, 2*4 tiles/digit)
-                ldy #$21                ; VRAM address high
-                ldx #(6*4-1)
--               lda segment_addr_lo,x   ; set VRAM address
-                jsr set_ppu_addr
-                lda seg_buf_left,x      ; print tile pair
+                ; print digit segments from buffer (6*3 vertical slices with 5 tiles each)
+                ; TODO: is too slow? assuming 4 cycles/instruction: 6*3*17*4 = ~1,200 cycles
+                ;
+                ldy #(6*3-1)            ; Y = vram_addr_lo index, X = vram_buffer index
+                ;
+-               lda #$21                ; set VRAM address
+                sta ppu_addr
+                lda vram_addr_lo,y
+                sta ppu_addr
+                ;
+                ldx times5,y
+                ;
+                lda vram_buffer+0,x
                 sta ppu_data
-                lda seg_buf_right,x
+                lda vram_buffer+1,x
                 sta ppu_data
-                dex
+                lda vram_buffer+2,x
+                sta ppu_data
+                lda vram_buffer+3,x
+                sta ppu_data
+                lda vram_buffer+4,x
+                sta ppu_data
+                ;
+                dey
                 bpl -
 
                 sec                     ; set flag to let main loop run once
@@ -362,16 +378,17 @@ nmi             pha                     ; push A, X, Y
 
 irq             rti                     ; note: IRQ unused
 
-segment_addr_lo ; low bytes of VRAM addresses of first bytes of segment tile pairs
-                ; notes:
-                ; - digits are a half tile left of centerline (total width is odd)
-                ; - digits are one    tile top  of centerline (to fit all on same VRAM page)
-                db 4*32+ 6, 5*32+ 6, 6*32+ 6, 7*32+ 6  ; tens of hour
-                db 4*32+ 9, 5*32+ 9, 6*32+ 9, 7*32+ 9  ; ones of hour
-                db 4*32+13, 5*32+13, 6*32+13, 7*32+13  ; tens of minute
-                db 4*32+16, 5*32+16, 6*32+16, 7*32+16  ; ones of minute
-                db 4*32+20, 5*32+20, 6*32+20, 7*32+20  ; tens of second
-                db 4*32+23, 5*32+23, 6*32+23, 7*32+23  ; ones of second
+vram_addr_lo    ; low bytes of VRAM addresses of first bytes of vertical 5-tile slices
+                db 4*32+ 2, 4*32+ 3, 4*32+ 4  ; tens of hour
+                db 4*32+ 7, 4*32+ 8, 4*32+ 9  ; ones of hour
+                db 4*32+12, 4*32+13, 4*32+14  ; tens of minute
+                db 4*32+17, 4*32+18, 4*32+19  ; ones of minute
+                db 4*32+22, 4*32+23, 4*32+24  ; tens of second
+                db 4*32+27, 4*32+28, 4*32+29  ; ones of second
+
+times5          db  0,  5, 10, 15, 20, 25  ; multiply 0...17 by 5
+                db 30, 35, 40, 45, 50, 55  ; (vram_addr_lo index -> vram_buffer index)
+                db 60, 65, 70, 75, 80, 85
 
 ; --- Subs & arrays used in many places -----------------------------------------------------------
 
@@ -382,7 +399,7 @@ set_ppu_addr    sty ppu_addr            ; set PPU address from Y and A
 set_ppu_regs    lda #$00                ; reset PPU scroll
                 sta ppu_scroll
                 sta ppu_scroll
-                lda #%10000000          ; enable NMI
+                lda #%10000100          ; enable NMI; address autoincrement 32 bytes
                 sta ppu_ctrl
                 lda #%00011110          ; show background and sprites
                 sta ppu_mask

@@ -22,7 +22,7 @@ Table of contents:
 ## Technical info
 * mapper: NROM
 * PRG ROM: 16 KiB (only 1 KiB is actually used)
-* CHR ROM: 8 KiB (only 512 bytes are actually used)
+* CHR ROM: 8 KiB (only 256 bytes are actually used)
 * name table mirroring: does not matter
 * extra RAM: no
 * compatibility: NTSC only (the clock runs at 60.1 fps)
