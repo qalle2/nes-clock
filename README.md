@@ -32,7 +32,8 @@ There are two modes.
 ### Adjust mode
 * The program starts in this mode.
 * Time does not advance.
-* Cursor (up arrow) is visible.
+* The clock is at the center of the screen.
+* The cursor (up arrow) is visible.
 
 Buttons:
 * left/right: move cursor
@@ -42,7 +43,8 @@ Buttons:
 
 ### Run mode
 * Time advances.
-* Cursor is hidden.
+* The clock moves around the screen to prevent burn-in.
+* The cursor is hidden.
 
 Buttons:
 * start: switch to adjust mode

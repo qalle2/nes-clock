@@ -15,6 +15,11 @@ pad_status      equ $67    ; joypad status
 prev_pad_status equ $68    ; previous joypad status
 cursor_pos      equ $69    ; cursor position (0-5)
 selected_pal    equ $6a    ; selected palette (0-3)
+scroll_horiz    equ $6b    ; horizontal scroll value (0-255)
+scroll_vert     equ $6c    ; vertical   scroll value (0-239)
+moving_right    equ $6d    ; clock moving right instead of left? (MSB: 0=no, 1=yes)
+moving_down     equ $6e    ; clock moving down  instead of up?   (MSB: 0=no, 1=yes)
+move_counter    equ $6f    ; counts 0-255 repeatedly (used for moving the clock)
 sprite_data     equ $0200  ; OAM page ($100 bytes)
 
 ; memory-mapped registers
@@ -30,6 +35,11 @@ oam_dma         equ $4014
 snd_chn         equ $4015
 joypad1         equ $4016
 joypad2         equ $4017
+
+; misc
+def_scroll_h    equ  3*8+4  ; default (centered) horizontal scroll value
+def_scroll_v    equ 12*8+4  ; default (centered) vertical   scroll value
+move_spd        equ 5       ; movement speed in run mode (0 = fastest, 8 = slowest)
 
 ; --- iNES header ---------------------------------------------------------------------------------
 
@@ -74,7 +84,14 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 dex
                 bpl -
 
-                inc selected_pal        ; default palette
+                inc selected_pal        ; init nonzero variables
+                lda #def_scroll_h
+                sta scroll_horiz
+                lda #def_scroll_v
+                sta scroll_vert
+                lda #%10000000
+                sta moving_right
+                sta moving_down
 
                 jsr wait_vbl_start      ; wait until next VBlank starts
 
@@ -121,12 +138,12 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
                 ;
                 ldy #8                  ; write $800 * $00
---              tax
+                tax
 -               sta ppu_data
                 inx
                 bne -
                 dey
-                bne --
+                bne -
 
                 jsr wait_vbl_start      ; wait until next VBlank starts
                 jsr set_ppu_regs        ; set ppu_scroll/ppu_ctrl/ppu_mask
@@ -414,16 +431,93 @@ main_run_mode   dec frame_counter       ; count down; if zero, a second has elap
                 bpl -
 
 time_math_done  lda prev_pad_status     ; if nothing pressed on previous frame and start pressed
-                bne +                   ; on this frame...
+                bne start_chk_done      ; on this frame...
                 lda pad_status
                 and #%00010000
-                beq +
+                beq start_chk_done
                 ;
                 lda init_spr_data+4*4   ; show cursor
                 sta sprite_data+4*4+0
+                lda #def_scroll_h       ; restore default scroll values
+                sta scroll_horiz
+                lda #def_scroll_v
+                sta scroll_vert
+                ldx #(4*4-1)            ; restore default dot sprites
+-               lda init_spr_data,x
+                sta sprite_data,x
+                dex
+                bpl -
                 lsr clock_running       ; clear flag to switch to adjust mode
 
-+               jmp main_loop           ; return to common main loop
+start_chk_done  lda move_counter        ; move clock by 1 pixel every 2**move_spd frames
+                and #((1<<move_spd)-1)
+                bne vert_move_done
+
+                ldx #(3*4)              ; move clock horizontally (X = sprite offset)
+                bit moving_right
+                bmi +
+                ;
+-               dec sprite_data+3,x     ; move dot sprites left
+                dex
+                dex
+                dex
+                dex
+                bpl -
+                inc scroll_horiz        ; move digits left by incrementing scroll value
+                lda scroll_horiz
+                cmp #(7*8)
+                beq ++
+                jmp horiz_move_done
++               ;
+-               inc sprite_data+3,x     ; move dot sprites right
+                dex
+                dex
+                dex
+                dex
+                bpl -
+                dec scroll_horiz        ; move digits right by decrementing scroll value
+                beq ++
+                jmp horiz_move_done
+                ;
+++              lda moving_right        ; invert horizontal direction
+                eor #%10000000
+                sta moving_right
+
+horiz_move_done ldx #(3*4)              ; move clock vertically (X = sprite offset)
+                bit moving_down
+                bmi +
+                ;
+-               dec sprite_data+0,x     ; move dot sprites up
+                dex
+                dex
+                dex
+                dex
+                bpl -
+                inc scroll_vert         ; move digits up by incrementing scroll value
+                lda scroll_vert
+                cmp #(24*8)
+                beq ++
+                jmp vert_move_done
++               ;
+-               inc sprite_data+0,x     ; move dot sprites down
+                dex
+                dex
+                dex
+                dex
+                bpl -
+                dec scroll_vert         ; move digits down by decrementing scroll value
+                lda scroll_vert
+                cmp #(1*8)
+                beq ++
+                jmp vert_move_done
+                ;
+++              lda moving_down         ; invert vertical direction
+                eor #%10000000
+                sta moving_down
+
+vert_move_done  inc move_counter        ; increment counter
+
+                jmp main_loop           ; return to common main loop
 
 ; --- Interrupt routines --------------------------------------------------------------------------
 
@@ -456,7 +550,7 @@ nmi             pha                     ; push A, X, Y
                 ldy #(6*3-1)            ; index to vram_addr_lo
                 ldx #((6*3-1)*5)        ; index to segment_buffer
                 ;
--               lda #$21                ; set VRAM address
+-               lda #$23                ; set VRAM address
                 sta ppu_addr
                 lda vram_addr_lo,y
                 sta ppu_addr
@@ -496,14 +590,14 @@ irq             rti                     ; note: IRQ unused
 pal_upd_addr    hex 01 03 11 13         ; low bytes of PPU addresses for palette updates
 
 vram_addr_lo    ; low bytes of VRAM addresses of first bytes of vertical 5-tile slices
-                ; note: clock is 1 tile right & down off center of name table (fixed by scrolling)
+                ; (bottom right corner of NT0)
                 ;
-                db 5*32+ 4, 5*32+ 5, 5*32+ 6  ; tens of hour
-                db 5*32+ 8, 5*32+ 9, 5*32+10  ; ones of hour
-                db 5*32+13, 5*32+14, 5*32+15  ; tens of minute
-                db 5*32+17, 5*32+18, 5*32+19  ; ones of minute
-                db 5*32+22, 5*32+23, 5*32+24  ; tens of second
-                db 5*32+26, 5*32+27, 5*32+28  ; ones of second
+                db 1*32+ 7, 1*32+ 8, 1*32+ 9  ; tens of hour
+                db 1*32+11, 1*32+12, 1*32+13  ; ones of hour
+                db 1*32+16, 1*32+17, 1*32+18  ; tens of minute
+                db 1*32+20, 1*32+21, 1*32+22  ; ones of minute
+                db 1*32+25, 1*32+26, 1*32+27  ; tens of second
+                db 1*32+29, 1*32+30, 1*32+31  ; ones of second
 
 ; --- Subs & arrays used in many places -----------------------------------------------------------
 
@@ -512,8 +606,9 @@ set_ppu_addr    sty ppu_addr            ; set PPU address from Y and A
                 sta ppu_addr
                 rts
 
-set_ppu_regs    lda #4                  ; center clock on screen
+set_ppu_regs    lda scroll_horiz        ; set scroll value
                 sta ppu_scroll
+                lda scroll_vert
                 sta ppu_scroll
                 lda #%10000100          ; enable NMI; address autoincrement 32 bytes
                 sta ppu_ctrl
