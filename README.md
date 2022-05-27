@@ -6,6 +6,8 @@ A 24-hour 7-segment clock for the [NES](https://en.wikipedia.org/wiki/Nintendo_E
 Table of contents:
 * [List of files](#list-of-files)
 * [Technical info](#technical-info)
+  * [Adjust mode](#adjust-mode)
+  * [Run mode](#run-mode)
 * [How to use](#how-to-use)
 * [To do](#to-do)
 
@@ -21,20 +23,28 @@ Table of contents:
 * mapper: NROM
 * PRG ROM: 16 KiB (only 1 KiB is actually used)
 * CHR ROM: 0 KiB (uses CHR RAM)
-* name table mirroring: does not matter
+* name table mirroring: vertical
 * extra RAM: no
 * compatibility: NTSC only (the clock runs at 60.1 fps)
 
 ## How to use
-There are two modes:
-* adjust mode:
-  * program starts in this mode
-  * time does not advance
-  * cursor (up arrow) is visible
-  * press left/right to move cursor
-  * press up/down to change digit at cursor
-  * press start to switch to run mode (hour must be 23 or less)
-* run mode:
-  * time advances
-  * cursor is hidden
-  * press start to switch to adjust mode
+There are two modes.
+
+### Adjust mode
+* The program starts in this mode.
+* Time does not advance.
+* Cursor (up arrow) is visible.
+
+Buttons:
+* left/right: move cursor
+* up/down: change digit at cursor
+* start: switch to run mode (hour must be 23 or less)
+* select: change palette
+
+### Run mode
+* Time advances.
+* Cursor is hidden.
+
+Buttons:
+* start: switch to adjust mode
+* select: change palette

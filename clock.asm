@@ -6,14 +6,16 @@
 
 ; RAM
 vram_buffer     equ $00    ; VRAM buffer (6 digits * 3 columns * 5 rows = 90 = $5a bytes)
-digits          equ $5a    ; digits of time (6 bytes, from tens of hour to ones of minute)
-clock_running   equ $60    ; is clock running? (MSB: 0=no, 1=yes)
-run_main_loop   equ $61    ; is main loop allowed to run? (MSB: 0=no, 1=yes)
-pad_status      equ $62    ; joypad status
-prev_pad_status equ $63    ; previous joypad status
-cursor_pos      equ $64    ; cursor position (0-5)
-frame_counter   equ $65    ; frames left in current second (0-61)
-temp            equ $66    ; temporary
+digits          equ $5a    ; digits of time (6 bytes, from tens of hour to ones of second)
+pal_buffer      equ $60    ; palette update buffer (4 bytes)
+clock_running   equ $64    ; is clock running? (MSB: 0=no, 1=yes)
+run_main_loop   equ $65    ; is main loop allowed to run? (MSB: 0=no, 1=yes)
+pad_status      equ $66    ; joypad status
+prev_pad_status equ $67    ; previous joypad status
+cursor_pos      equ $68    ; cursor position (0-5)
+frame_counter   equ $69    ; frames left in current second (0-61)
+selected_pal    equ $6a    ; selected palette (0-3)
+temp            equ $6b    ; temporary
 sprite_data     equ $0200  ; OAM page ($100 bytes)
 
 ; memory-mapped registers
@@ -26,18 +28,9 @@ ppu_addr        equ $2006
 ppu_data        equ $2007
 dmc_freq        equ $4010
 oam_dma         equ $4014
-sound_ctrl      equ $4015
+snd_chn         equ $4015
 joypad1         equ $4016
 joypad2         equ $4017
-
-; colors
-color_bg        equ $0f  ; background (black)
-color_dim       equ $18  ; dim        (dark yellow)
-color_unused    equ $30  ; unused     (white)
-color_bright    equ $28  ; bright     (yellow)
-
-tile_dot        equ $01  ; dot (in colons)
-tile_cursor     equ $02  ; cursor (up arrow)
 
 ; --- iNES header ---------------------------------------------------------------------------------
 
@@ -45,7 +38,7 @@ tile_cursor     equ $02  ; cursor (up arrow)
                 base $0000
                 db "NES", $1a            ; file id
                 db 1, 0                  ; 16 KiB PRG ROM, 0 KiB CHR ROM (uses CHR RAM)
-                db %00000000, %00000000  ; NROM mapper, horizontal name table mirroring
+                db %00000001, %00000000  ; NROM mapper, vertical name table mirroring
                 pad $0010, $00           ; unused
 
 ; --- Initialization ------------------------------------------------------------------------------
@@ -64,7 +57,7 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 stx ppu_ctrl            ; disable NMI
                 stx ppu_mask            ; disable rendering
                 stx dmc_freq            ; disable DMC IRQs
-                stx sound_ctrl          ; disable sound channels
+                stx snd_chn             ; disable sound channels
 
                 jsr wait_vbl_start      ; wait until next VBlank starts
 
@@ -76,12 +69,13 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 inx
                 bne -
 
-                ldx #0                  ; copy initial sprite data
+                ldx #(5*4-1)            ; copy initial sprite data
 -               lda init_spr_data,x
                 sta sprite_data,x
-                inx
-                cpx #(5*4)
-                bne -
+                dex
+                bpl -
+
+                inc selected_pal        ; default palette
 
                 jsr wait_vbl_start      ; wait until next VBlank starts
 
@@ -121,10 +115,12 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 inx
                 bpl -                   ; $80 bytes to read
 
-                ldy #$20                ; clear name/attribute table 0 (4*256 bytes)
+                ; clear name & attribute table 0 & 1 (both because we scroll the screen)
+                ;
+                ldy #$20                ; VRAM address $2000
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
                 ;
-                ldy #4
+                ldy #8                  ; write $800 * $00
 --              tax
 -               sta ppu_data
                 inx
@@ -142,13 +138,21 @@ wait_vbl_start  bit ppu_status          ; wait until next VBlank starts
                 rts
 
 init_spr_data   ; initial sprite data (Y, tile, attributes, X)
-                db $6a-1, tile_dot,    %00000000, $54  ; #0: top    dot between hour   & minute
-                db $76-1, tile_dot,    %00000000, $54  ; #1: bottom dot between hour   & minute
-                db $6a-1, tile_dot,    %00000000, $a4  ; #2: top    dot between minute & second
-                db $76-1, tile_dot,    %00000000, $a4  ; #3: bottom dot between minute & second
-                db $90-1, tile_cursor, %00000000, $18  ; #4: cursor
+                db 14*8-2-1, $01, %00000000, 11*8    ; #0: top    dot between hour   & minute
+                db 15*8+2-1, $01, %00000000, 11*8    ; #1: bottom dot between hour   & minute
+                db 14*8-2-1, $01, %00000000, 20*8    ; #2: top    dot between minute & second
+                db 15*8+2-1, $01, %00000000, 20*8    ; #3: bottom dot between minute & second
+                db 18*8+4-1, $02, %00000000,  4*8+4  ; #4: cursor
+init_spr_end
 
-palette         db color_bright, color_unused, color_dim, color_bg  ; backwards to all subpalettes
+palette         ; initial palette
+                ; - copied backwards to all subpalettes
+                ; - only 1st background subpalette & 1st sprite subpalette are used
+                ;
+                db $28  ; color 3: bright     (same as default color in bright_colors)
+                db $30  ; color 2: unused     (white)
+                db $18  ; color 1: dim        (same as default color in dim_colors)
+                db $0f  ; color 0: background (black)
 
 pt_data         ; pattern table data
                 ; - each nybble is an index to pt_data_bytes
@@ -210,44 +214,44 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 rol pad_status
                 bcc -
 
+                lda prev_pad_status     ; if nothing pressed on previous frame and start pressed
+                bne ++                  ; on this frame...
+                lda pad_status
+                and #%00100000
+                beq ++
+                ;
+                ldx selected_pal        ; increment palette
+                inx
+                cpx #5
+                bne +
+                ldx #0
++               stx selected_pal
+
+++              ldx selected_pal        ; set up palette buffer according to selected palette
+                lda dim_colors,x
+                sta pal_buffer+0
+                sta pal_buffer+2
+                lda bright_colors,x
+                sta pal_buffer+1
+                sta pal_buffer+3
+
                 ; set up VRAM buffer
+                ; (6502 has no LDA zp,y so we waste 1 byte; swapping X/Y would waste 2 bytes)
                 ;
-                lda digits+0            ; tens of hour
-                ldx #0*3*5
-                jsr digit_to_vrbuf
+                ldy #0                  ; source index (digits/segment_tiles)
+                ldx #0                  ; target index (vram_buffer)
                 ;
-                lda digits+1            ; ones of hour
-                ldx #1*3*5
-                jsr digit_to_vrbuf
+--              tya                     ; push digits index
+                pha
                 ;
-                lda digits+2            ; tens of minute
-                ldx #2*3*5
-                jsr digit_to_vrbuf
-                ;
-                lda digits+3            ; ones of minute
-                ldx #3*3*5
-                jsr digit_to_vrbuf
-                ;
-                lda digits+4            ; tens of second
-                ldx #4*3*5
-                jsr digit_to_vrbuf
-                ;
-                lda digits+5            ; ones of second
-                ldx #5*3*5
-                jsr digit_to_vrbuf
-
-                bit clock_running       ; run mode-specific code
-                bmi +
-                jmp main_adj_mode
-+               jmp main_run_mode
-
-digit_to_vrbuf  asl a                   ; read 15 (3*5) nybbles from segment_tiles,
-                asl a                   ; write 15 tiles to VRAM buffer
-                asl a                   ; in: A = value of digit (0-9), X = target index start
+                lda digits,y            ; segment_tiles index -> Y
+                asl a
+                asl a
+                asl a
                 tay
                 ;
--               lda segment_tiles,y
-                lsr a
+-               lda segment_tiles,y     ; inner loop: read 8 bytes from segment_tiles and copy
+                lsr a                   ; first 3*5 nybbles (tiles) to vram_buffer
                 lsr a
                 lsr a
                 lsr a
@@ -265,9 +269,22 @@ digit_to_vrbuf  asl a                   ; read 15 (3*5) nybbles from segment_til
                 inx
                 ;
                 iny
-                bpl -                   ; unconditional
+                bpl -                   ; continue inner loop (unconditional)
                 ;
-+               rts
++               pla                     ; exited inner loop; pull digits index & increment
+                tay
+                iny
+                ;
+                cpy #6
+                bne --
+
+                bit clock_running       ; run mode-specific code
+                bmi +
+                jmp main_adj_mode
++               jmp main_run_mode
+
+dim_colors      hex 16 18 1a 12 00  ; red, yellow, green, blue, white
+bright_colors   hex 26 28 2a 22 30  ; same
 
 segment_tiles   ; Digits are 3*5 tiles. Tile slots: 0 = top left, 4 = bottom left, etc.
                 ; Slots 6 & 8 are always empty; slot 15 is for padding only.
@@ -292,6 +309,7 @@ main_adj_mode   lda prev_pad_status     ; ignore buttons if something was presse
                 ldx cursor_pos          ; react to buttons
                 ldy digits,x
                 lda pad_status
+                ;
                 lsr a
                 bcs cursor_right
                 lsr a
@@ -335,6 +353,7 @@ start_clock     lda digits+0            ; start clock if hour <= 23
                 lda digits+1
                 cmp #4
                 bcs buttons_done
+                ;
 +               lda #$ff                ; hide cursor sprite
                 sta sprite_data+4*4+0
                 lda #60                 ; restart current second
@@ -347,7 +366,9 @@ buttons_done    ldx cursor_pos          ; update cursor sprite X
                 sta sprite_data+4*4+3
                 jmp main_loop           ; return to common main loop
 
-cursor_x        hex 18 40 68 90 b8 e0   ; cursor sprite X positions
+cursor_x        db  4*8+4,  8*8+4       ; cursor sprite X positions
+                db 13*8+4, 17*8+4
+                db 22*8+4, 26*8+4
 
 ; --- Main loop - run mode ------------------------------------------------------------------------
 
@@ -360,7 +381,7 @@ main_run_mode   dec frame_counter       ; count down; if zero, a second has elap
                 bne +
                 inc frame_counter
 
-+               ldx #5                  ; increment digits (X = which digit)
++               ldx #(6-1)              ; increment digits (X = which digit)
 -               cpx #1                  ; special logic: reset ones of hour if hour = 23
                 bne +
                 lda digits+0
@@ -403,6 +424,17 @@ nmi             pha                     ; push A, X, Y
                 lda #>sprite_data
                 sta oam_dma
 
+                ldy #$3f                ; change palette according to variable
+                ldx #0                  ; Y = PPU address high, X = source index
+                ;
+-               lda pal_upd_addr,x
+                jsr set_ppu_addr        ; Y, A -> address
+                lda pal_buffer,x
+                sta ppu_data
+                inx
+                cpx #4
+                bne -
+
                 ; print digit segments from buffer (6*3 vertical slices with 5 tiles each);
                 ; instructions executed in the loop: 6*3*17 = 306
                 ;
@@ -442,13 +474,17 @@ nmi             pha                     ; push A, X, Y
 
 irq             rti                     ; note: IRQ unused
 
+pal_upd_addr    hex 01 03 11 13  ; low bytes of PPU addresses for palette updates
+
 vram_addr_lo    ; low bytes of VRAM addresses of first bytes of vertical 5-tile slices
-                db 4*32+ 2, 4*32+ 3, 4*32+ 4  ; tens of hour
-                db 4*32+ 7, 4*32+ 8, 4*32+ 9  ; ones of hour
-                db 4*32+12, 4*32+13, 4*32+14  ; tens of minute
-                db 4*32+17, 4*32+18, 4*32+19  ; ones of minute
-                db 4*32+22, 4*32+23, 4*32+24  ; tens of second
-                db 4*32+27, 4*32+28, 4*32+29  ; ones of second
+                ; note: clock is 1 tile right & down off center of name table (fixed by scrolling)
+                ;
+                db 5*32+ 4, 5*32+ 5, 5*32+ 6  ; tens of hour
+                db 5*32+ 8, 5*32+ 9, 5*32+10  ; ones of hour
+                db 5*32+13, 5*32+14, 5*32+15  ; tens of minute
+                db 5*32+17, 5*32+18, 5*32+19  ; ones of minute
+                db 5*32+22, 5*32+23, 5*32+24  ; tens of second
+                db 5*32+26, 5*32+27, 5*32+28  ; ones of second
 
 times5          db  0,  5, 10, 15, 20, 25  ; multiply 0...17 by 5
                 db 30, 35, 40, 45, 50, 55  ; (vram_addr_lo index -> vram_buffer index)
@@ -461,7 +497,7 @@ set_ppu_addr    sty ppu_addr            ; set PPU address from Y and A
                 sta ppu_addr
                 rts
 
-set_ppu_regs    lda #$00                ; reset PPU scroll
+set_ppu_regs    lda #4                  ; center clock on screen
                 sta ppu_scroll
                 sta ppu_scroll
                 lda #%10000100          ; enable NMI; address autoincrement 32 bytes
@@ -470,7 +506,7 @@ set_ppu_regs    lda #$00                ; reset PPU scroll
                 sta ppu_mask
                 rts
 
-max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of digits
+max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of individual digits
 
 ; --- Interrupt vectors ---------------------------------------------------------------------------
 
