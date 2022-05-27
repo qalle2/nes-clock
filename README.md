@@ -13,6 +13,8 @@ Table of contents:
 * `assemble.sh`: a Linux script that assembles the program (warning: deletes files)
 * `clock.asm`: source code (ASM6)
 * `clock.nes.gz`: assembled program (iNES format, gzip compressed)
+* `hexdump.py`: creates `hexdump.txt`
+* `hexdump.txt`: assembled program in hexadecimal
 * `snap.png`: screenshot
 
 ## Technical info

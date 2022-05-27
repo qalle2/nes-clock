@@ -99,11 +99,27 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
 
                 ldy #$00                ; copy pattern table data
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
+                tax                     ; X = source index; Y = temporary
                 ;
--               lda pt_data,y
+-               lda pt_data,x
+                ;
+                pha                     ; use high nybble as index
+                lsr a
+                lsr a
+                lsr a
+                lsr a
+                tay
+                lda pt_data_bytes,y
                 sta ppu_data
-                iny
-                bne -
+                ;
+                pla                     ; use low nybble as index
+                and #%00001111
+                tay
+                lda pt_data_bytes,y
+                sta ppu_data
+                ;
+                inx
+                bpl -                   ; $80 bytes to read
 
                 ldy #$20                ; clear name/attribute table 0 (4*256 bytes)
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
@@ -135,27 +151,44 @@ init_spr_data   ; initial sprite data (Y, tile, attributes, X)
 palette         db color_bright, color_unused, color_dim, color_bg  ; backwards to all subpalettes
 
 pt_data         ; pattern table data
-                ; notes:
+                ; - each nybble is an index to pt_data_bytes
                 ; - we use colors 0/1/3 instead 0/1/2 to achieve better compression
                 ; - top tip of segment is at bottom of tile and vice versa;
                 ;   same for left/right tip
                 ;
-                hex 0000000000000000 0000000000000000  ; tile $00: blank
-                hex 00003c3c3c3c0000 0000183c3c180000  ; tile $01: dot (used in colons)
-                hex 183c7eff18181818 00183c7e18181800  ; tile $02: cursor (up arrow)
-                hex 00ffffffffffff00 00ffffffffffff00  ; tile $03: middle of horizontal segment
-                hex 7e7e7e7e7e7e7e7e 7e7e7e7e7e7e7e7e  ; tile $04: middle of vertical segment
-                hex 0000000000183c7e 000000000000183c  ; tile $05: seg tip - top
-                hex 7e3c180000000000 3c18000000000000  ; tile $06: seg tip - bottom
-                hex 7e3c180000183c7e 3c1800000000183c  ; tile $07: seg tip - bottom & top
-                hex 0001030707030100 0000010303010000  ; tile $08: seg tip - left
-                hex 00010307071b3d7e 000001030301183c  ; tile $09: seg tip - left & top
-                hex 7e3d1b0707030100 3c18010303010000  ; tile $0a: seg tip - left & bottom
-                hex 7e3d1b07071b3d7e 3c1801030301183c  ; tile $0b: seg tip - left & bottom & top
-                hex 0080c0e0e0c08000 000080c0c0800000  ; tile $0c: seg tip - right
-                hex 0080c0e0e0d8bc7e 000080c0c080183c  ; tile $0d: seg tip - right & top
-                hex 7ebcd8e0e0c08000 3c1880c0c0800000  ; tile $0e: seg tip - right & bottom
-                hex 7ebcd8e0e0d8bc7e 3c1880c0c080183c  ; tile $0f: seg tip - right & bottom & top
+                hex 00000000 00000000  ; tile $00: blank
+                hex 00666600 00466400  ; tile $01: dot (in colons)
+                hex 468e4444 04684440  ; tile $02: cursor (up arrow)
+                hex 0eeeeee0 0eeeeee0  ; tile $03: middle of segment - horizontal
+                hex 88888888 88888888  ; tile $04: middle of segment - vertical
+                hex 00000468 00000046  ; tile $05: segment tip - top
+                hex 86400000 64000000  ; tile $06: segment tip - bottom
+                hex 86400468 64000046  ; tile $07: segment tip - bottom & top
+                hex 01233210 00122100  ; tile $08: segment tip - left
+                hex 01233578 00122146  ; tile $09: segment tip - left & top
+                hex 87533210 64122100  ; tile $0a: segment tip - left & bottom
+                hex 87533578 64122146  ; tile $0b: segment tip - left & bottom & top
+                hex 09bddb90 009bb900  ; tile $0c: segment tip - right
+                hex 09bddca8 009bb946  ; tile $0d: segment tip - right & top
+                hex 8acddb90 649bb900  ; tile $0e: segment tip - right & bottom
+                hex 8acddca8 649bb946  ; tile $0f: segment tip - right & bottom & top
+
+pt_data_bytes   ; see pt_data
+                db %00000000  ; index $0
+                db %00000001  ; index $1
+                db %00000011  ; index $2
+                db %00000111  ; index $3
+                db %00011000  ; index $4
+                db %00011011  ; index $5
+                db %00111100  ; index $6
+                db %00111101  ; index $7
+                db %01111110  ; index $8
+                db %10000000  ; index $9
+                db %10111100  ; index $a
+                db %11000000  ; index $b
+                db %11011000  ; index $c
+                db %11100000  ; index $d
+                db %11111111  ; index $e
 
 ; --- Main loop - common --------------------------------------------------------------------------
 
@@ -370,8 +403,8 @@ nmi             pha                     ; push A, X, Y
                 lda #>sprite_data
                 sta oam_dma
 
-                ; print digit segments from buffer (6*3 vertical slices with 5 tiles each)
-                ; TODO: is too slow? assuming 4 cycles/instruction: 6*3*17*4 = ~1,200 cycles
+                ; print digit segments from buffer (6*3 vertical slices with 5 tiles each);
+                ; instructions executed in the loop: 6*3*17 = 306
                 ;
                 ldy #(6*3-1)            ; Y = vram_addr_lo index, X = vram_buffer index
                 ;
