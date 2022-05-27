@@ -6,10 +6,9 @@ A 24-hour 7-segment clock for the [NES](https://en.wikipedia.org/wiki/Nintendo_E
 Table of contents:
 * [List of files](#list-of-files)
 * [Technical info](#technical-info)
+* [How to use](#how-to-use)
   * [Adjust mode](#adjust-mode)
   * [Run mode](#run-mode)
-* [How to use](#how-to-use)
-* [To do](#to-do)
 
 ## List of files
 * `assemble.sh`: a Linux script that assembles the program (warning: deletes files)
