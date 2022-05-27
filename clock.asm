@@ -2,20 +2,19 @@
 
 ; --- Constants -----------------------------------------------------------------------------------
 
-; note: VRAM buffer = which segments to draw on next VBlank
+; note: segment_buffer & palette_buffer: bytes to update to PPU on next VBlank
 
 ; RAM
-vram_buffer     equ $00    ; VRAM buffer (6 digits * 3 columns * 5 rows = 90 = $5a bytes)
-digits          equ $5a    ; digits of time (6 bytes, from tens of hour to ones of second)
-pal_buffer      equ $60    ; palette update buffer (4 bytes)
-clock_running   equ $64    ; is clock running? (MSB: 0=no, 1=yes)
-run_main_loop   equ $65    ; is main loop allowed to run? (MSB: 0=no, 1=yes)
-pad_status      equ $66    ; joypad status
-prev_pad_status equ $67    ; previous joypad status
-cursor_pos      equ $68    ; cursor position (0-5)
-frame_counter   equ $69    ; frames left in current second (0-61)
+segment_buffer  equ $00    ; segment tile buffer (6 digits * 3 columns * 5 rows = 90 = $5a bytes)
+palette_buffer  equ $5a    ; palette buffer (4 bytes)
+digits          equ $5e    ; digits of time (6 bytes, from tens of hour to ones of second)
+frame_counter   equ $64    ; frames left in current second (0-61)
+clock_running   equ $65    ; is clock running? (MSB: 0=no, 1=yes)
+run_main_loop   equ $66    ; is main loop allowed to run? (MSB: 0=no, 1=yes)
+pad_status      equ $67    ; joypad status
+prev_pad_status equ $68    ; previous joypad status
+cursor_pos      equ $69    ; cursor position (0-5)
 selected_pal    equ $6a    ; selected palette (0-3)
-temp            equ $6b    ; temporary
 sprite_data     equ $0200  ; OAM page ($100 bytes)
 
 ; memory-mapped registers
@@ -82,12 +81,13 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 ldy #$3f                ; set up palette (while still in VBlank)
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
                 ;
-                ldy #8                  ; copy same 4 colors backwards to all subpalettes
---              ldx #(4-1)
--               lda palette,x
+                ldy #8                  ; copy same colors to all subpalettes
+--              ldx #0
+-               lda init_palette,x
                 sta ppu_data
-                dex
-                bpl -
+                inx
+                cpx #4
+                bne -
                 dey
                 bne --
 
@@ -145,54 +145,56 @@ init_spr_data   ; initial sprite data (Y, tile, attributes, X)
                 db 18*8+4-1, $02, %00000000,  4*8+4  ; #4: cursor
 init_spr_end
 
-palette         ; initial palette
-                ; - copied backwards to all subpalettes
-                ; - only 1st background subpalette & 1st sprite subpalette are used
+init_palette    ; initial palette
+                ; - copied to all subpalettes
+                ; - only 1st background & sprite subpalette are used
                 ;
-                db $28  ; color 3: bright     (same as default color in bright_colors)
-                db $30  ; color 2: unused     (white)
-                db $18  ; color 1: dim        (same as default color in dim_colors)
-                db $0f  ; color 0: background (black)
+                hex 0f                  ; background (black)
+                hex 18                  ; dim        (same as default color in dim_colors)
+                hex 13                  ; unused     (purple)
+                hex 28                  ; bright     (same as default color in bright_colors)
 
 pt_data         ; pattern table data
                 ; - each nybble is an index to pt_data_bytes
-                ; - we use colors 0/1/3 instead 0/1/2 to achieve better compression
+                ; - we use colors 0/1/3 instead 0/1/2 to achieve better compression (fewer
+                ;   distinct bytes)
                 ; - top tip of segment is at bottom of tile and vice versa;
                 ;   same for left/right tip
                 ;
-                hex 00000000 00000000  ; tile $00: blank
-                hex 00666600 00466400  ; tile $01: dot (in colons)
-                hex 468e4444 04684440  ; tile $02: cursor (up arrow)
-                hex 0eeeeee0 0eeeeee0  ; tile $03: middle of segment - horizontal
-                hex 88888888 88888888  ; tile $04: middle of segment - vertical
-                hex 00000468 00000046  ; tile $05: segment tip - top
-                hex 86400000 64000000  ; tile $06: segment tip - bottom
-                hex 86400468 64000046  ; tile $07: segment tip - bottom & top
-                hex 01233210 00122100  ; tile $08: segment tip - left
-                hex 01233578 00122146  ; tile $09: segment tip - left & top
-                hex 87533210 64122100  ; tile $0a: segment tip - left & bottom
-                hex 87533578 64122146  ; tile $0b: segment tip - left & bottom & top
-                hex 09bddb90 009bb900  ; tile $0c: segment tip - right
-                hex 09bddca8 009bb946  ; tile $0d: segment tip - right & top
-                hex 8acddb90 649bb900  ; tile $0e: segment tip - right & bottom
-                hex 8acddca8 649bb946  ; tile $0f: segment tip - right & bottom & top
+                hex 00000000 00000000   ; tile $00: blank
+                hex 00666600 00466400   ; tile $01: dot (in colons)
+                hex 468e4444 04684440   ; tile $02: cursor (up arrow)
+                hex 0eeeeee0 0eeeeee0   ; tile $03: middle of segment - horizontal
+                hex 88888888 88888888   ; tile $04: middle of segment - vertical
+                hex 00000468 00000046   ; tile $05: segment tip - top
+                hex 86400000 64000000   ; tile $06: segment tip - bottom
+                hex 86400468 64000046   ; tile $07: segment tip - bottom & top
+                hex 01233210 00122100   ; tile $08: segment tip - left
+                hex 01233578 00122146   ; tile $09: segment tip - left & top
+                hex 87533210 64122100   ; tile $0a: segment tip - left & bottom
+                hex 87533578 64122146   ; tile $0b: segment tip - left & bottom & top
+                hex 09bddb90 009bb900   ; tile $0c: segment tip - right
+                hex 09bddca8 009bb946   ; tile $0d: segment tip - right & top
+                hex 8acddb90 649bb900   ; tile $0e: segment tip - right & bottom
+                hex 8acddca8 649bb946   ; tile $0f: segment tip - right & bottom & top
 
-pt_data_bytes   ; see pt_data
-                db %00000000  ; index $0
-                db %00000001  ; index $1
-                db %00000011  ; index $2
-                db %00000111  ; index $3
-                db %00011000  ; index $4
-                db %00011011  ; index $5
-                db %00111100  ; index $6
-                db %00111101  ; index $7
-                db %01111110  ; index $8
-                db %10000000  ; index $9
-                db %10111100  ; index $a
-                db %11000000  ; index $b
-                db %11011000  ; index $c
-                db %11100000  ; index $d
-                db %11111111  ; index $e
+pt_data_bytes   ; actual pattern table bytes; see pt_data
+                ;
+                db %00000000            ; index $0
+                db %00000001            ; index $1
+                db %00000011            ; index $2
+                db %00000111            ; index $3
+                db %00011000            ; index $4
+                db %00011011            ; index $5
+                db %00111100            ; index $6
+                db %00111101            ; index $7
+                db %01111110            ; index $8
+                db %10000000            ; index $9
+                db %10111100            ; index $a
+                db %11000000            ; index $b
+                db %11011000            ; index $c
+                db %11100000            ; index $d
+                db %11111111            ; index $e
 
 ; --- Main loop - common --------------------------------------------------------------------------
 
@@ -229,33 +231,33 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
 
 ++              ldx selected_pal        ; set up palette buffer according to selected palette
                 lda dim_colors,x
-                sta pal_buffer+0
-                sta pal_buffer+2
+                sta palette_buffer+0
+                sta palette_buffer+2
                 lda bright_colors,x
-                sta pal_buffer+1
-                sta pal_buffer+3
+                sta palette_buffer+1
+                sta palette_buffer+3
 
-                ; set up VRAM buffer
+                ; set up segment tile buffer
                 ; (6502 has no LDA zp,y so we waste 1 byte; swapping X/Y would waste 2 bytes)
                 ;
-                ldy #0                  ; source index (digits/segment_tiles)
-                ldx #0                  ; target index (vram_buffer)
+                ldy #0                  ; source index (digits/digit_tiles)
+                ldx #0                  ; target index (segment_buffer)
                 ;
 --              tya                     ; push digits index
                 pha
                 ;
-                lda digits,y            ; segment_tiles index -> Y
+                lda digits,y            ; digit_tiles index -> Y
                 asl a
                 asl a
                 asl a
                 tay
                 ;
--               lda segment_tiles,y     ; inner loop: read 8 bytes from segment_tiles and copy
-                lsr a                   ; first 3*5 nybbles (tiles) to vram_buffer
+-               lda digit_tiles,y       ; inner loop: read 8 bytes from digit_tiles and copy
+                lsr a                   ; first 3*5 nybbles (tiles) to segment_buffer
                 lsr a
                 lsr a
                 lsr a
-                sta vram_buffer,x
+                sta segment_buffer,x
                 inx
                 ;
                 tya                     ; exit in the middle of 8th round
@@ -263,9 +265,9 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 cmp #%00000111
                 beq +
                 ;
-                lda segment_tiles,y
+                lda digit_tiles,y
                 and #%00001111
-                sta vram_buffer,x
+                sta segment_buffer,x
                 inx
                 ;
                 iny
@@ -283,13 +285,22 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 jmp main_adj_mode
 +               jmp main_run_mode
 
-dim_colors      hex 16 18 1a 12 00  ; red, yellow, green, blue, white
-bright_colors   hex 26 28 2a 22 30  ; same
+dim_colors      hex 16 18 1a 12 00      ; red, yellow, green, blue, white
+bright_colors   hex 26 28 2a 22 30      ; same
 
-segment_tiles   ; Digits are 3*5 tiles. Tile slots: 0 = top left, 4 = bottom left, etc.
-                ; Slots 6 & 8 are always empty; slot 15 is for padding only.
-                ; Nybbles = tiles in slots 0-15 for each digit.
+digit_tiles     ; Tiles of digits. Each nybble is a tile index. Each digit is 3*5 tile slots:
+                ;     $0 $5 $a
+                ;     $1 $6 $b
+                ;     $2 $7 $c
+                ;     $3 $8 $d
+                ;     $4 $9 $e
+                ; Tile slots $6, $8                    : always empty
+                ; Tile slots $1, $3, $5, $7, $9, $b, $d: middle parts of segments
+                ; Tile slots $0, $2, $4, $a, $c, $e    : tips of segments
+                ; Tile slot  $f                        : padding (not copied)
                 ;
+                ;   01 23 45 67 89 ab cd ef  <- tile slot (hexadecimal)
+                ;   -- -- -- -- -- -- -- --
                 hex 94 74 a3 00 03 d4 74 e0  ; "0"
                 hex 00 00 00 00 00 54 74 60  ; "1"
                 hex 80 94 a3 03 03 d4 e0 c0  ; "2"
@@ -307,47 +318,47 @@ main_adj_mode   lda prev_pad_status     ; ignore buttons if something was presse
                 bne buttons_done
 
                 ldx cursor_pos          ; react to buttons
-                ldy digits,x
                 lda pad_status
                 ;
                 lsr a
-                bcs cursor_right
+                bcs cursor_right        ; d-pad right
                 lsr a
-                bcs cursor_left
+                bcs cursor_left         ; d-pad left
                 lsr a
-                bcs decrement_digit
+                bcs dec_digit           ; d-pad down
                 lsr a
-                bcs increment_digit
+                bcs inc_digit           ; d-pad up
                 lsr a
-                bcs start_clock
+                bcs start_clock         ; start button
+                ;
                 bcc buttons_done        ; unconditional
 
-cursor_left     dex
+cursor_left     dex                     ; move cursor left
                 bpl +
                 ldx #(6-1)
                 bpl +                   ; unconditional
-cursor_right    inx
+                ;
+cursor_right    inx                     ; move cursor right
                 cpx #6
                 bne +
                 ldx #0
 +               stx cursor_pos
                 jmp buttons_done
 
-decrement_digit dey
-                bpl ++
+dec_digit       dec digits,x            ; decrement digit at cursor
+                bpl buttons_done
                 lda max_digits,x
-                tay
-                bpl ++                  ; unconditional
-increment_digit tya
-                cmp max_digits,x
-                bne +
-                ldy #0
-                beq ++                  ; unconditional
-+               iny
-++              sty digits,x
+                bpl +                   ; unconditional
+                ;
+inc_digit       inc digits,x            ; increment digit at cursor
+                lda max_digits,x
+                cmp digits,x
+                bcs buttons_done
+                lda #0
++               sta digits,x
                 bpl buttons_done        ; unconditional
 
-start_clock     lda digits+0            ; start clock if hour <= 23
+start_clock     lda digits+0            ; if hour <= 23...
                 cmp #2
                 bcc +
                 lda digits+1
@@ -358,10 +369,10 @@ start_clock     lda digits+0            ; start clock if hour <= 23
                 sta sprite_data+4*4+0
                 lda #60                 ; restart current second
                 sta frame_counter
-                sec                     ; set flag
+                sec                     ; set flag to switch to run mode
                 ror clock_running
 
-buttons_done    ldx cursor_pos          ; update cursor sprite X
+buttons_done    ldx cursor_pos          ; update X position of cursor sprite
                 lda cursor_x,x
                 sta sprite_data+4*4+3
                 jmp main_loop           ; return to common main loop
@@ -373,7 +384,7 @@ cursor_x        db  4*8+4,  8*8+4       ; cursor sprite X positions
 ; --- Main loop - run mode ------------------------------------------------------------------------
 
 main_run_mode   dec frame_counter       ; count down; if zero, a second has elapsed
-                bne digit_incr_done
+                bne time_math_done
 
                 lda #60                 ; reinitialize frame counter
                 sta frame_counter       ; 60.1 on average (60 + an extra frame every 10 seconds)
@@ -382,6 +393,7 @@ main_run_mode   dec frame_counter       ; count down; if zero, a second has elap
                 inc frame_counter
 
 +               ldx #(6-1)              ; increment digits (X = which digit)
+                ;
 -               cpx #1                  ; special logic: reset ones of hour if hour = 23
                 bne +
                 lda digits+0
@@ -390,23 +402,26 @@ main_run_mode   dec frame_counter       ; count down; if zero, a second has elap
                 lda digits+1
                 cmp #3
                 beq ++
+                ;
 +               inc digits,x            ; the usual logic: increment digit; if too large, zero it
                 lda max_digits,x        ; and continue to next digit, otherwise exit
                 cmp digits,x
-                bcs digit_incr_done
+                bcs time_math_done
+                ;
 ++              lda #0
                 sta digits,x
                 dex
                 bpl -
 
-digit_incr_done lda prev_pad_status     ; if nothing pressed on previous frame
-                bne +
-                lda pad_status          ; and start pressed on this frame
+time_math_done  lda prev_pad_status     ; if nothing pressed on previous frame and start pressed
+                bne +                   ; on this frame...
+                lda pad_status
                 and #%00010000
                 beq +
-                lda init_spr_data+4*4   ; then show cursor
+                ;
+                lda init_spr_data+4*4   ; show cursor
                 sta sprite_data+4*4+0
-                lsr clock_running       ; and clear flag
+                lsr clock_running       ; clear flag to switch to adjust mode
 
 +               jmp main_loop           ; return to common main loop
 
@@ -424,39 +439,43 @@ nmi             pha                     ; push A, X, Y
                 lda #>sprite_data
                 sta oam_dma
 
-                ldy #$3f                ; change palette according to variable
+                ldy #$3f                ; update palette from buffer
                 ldx #0                  ; Y = PPU address high, X = source index
                 ;
 -               lda pal_upd_addr,x
                 jsr set_ppu_addr        ; Y, A -> address
-                lda pal_buffer,x
+                lda palette_buffer,x
                 sta ppu_data
                 inx
                 cpx #4
                 bne -
 
                 ; print digit segments from buffer (6*3 vertical slices with 5 tiles each);
-                ; instructions executed in the loop: 6*3*17 = 306
+                ; instructions executed in the loop: 6*3*20 = 360
                 ;
-                ldy #(6*3-1)            ; Y = vram_addr_lo index, X = vram_buffer index
+                ldy #(6*3-1)            ; index to vram_addr_lo
+                ldx #((6*3-1)*5)        ; index to segment_buffer
                 ;
 -               lda #$21                ; set VRAM address
                 sta ppu_addr
                 lda vram_addr_lo,y
                 sta ppu_addr
                 ;
-                ldx times5,y
+                lda segment_buffer+0,x
+                sta ppu_data
+                lda segment_buffer+1,x
+                sta ppu_data
+                lda segment_buffer+2,x
+                sta ppu_data
+                lda segment_buffer+3,x
+                sta ppu_data
+                lda segment_buffer+4,x
+                sta ppu_data
                 ;
-                lda vram_buffer+0,x
-                sta ppu_data
-                lda vram_buffer+1,x
-                sta ppu_data
-                lda vram_buffer+2,x
-                sta ppu_data
-                lda vram_buffer+3,x
-                sta ppu_data
-                lda vram_buffer+4,x
-                sta ppu_data
+                txa
+                sec
+                sbc #5
+                tax
                 ;
                 dey
                 bpl -
@@ -474,7 +493,7 @@ nmi             pha                     ; push A, X, Y
 
 irq             rti                     ; note: IRQ unused
 
-pal_upd_addr    hex 01 03 11 13  ; low bytes of PPU addresses for palette updates
+pal_upd_addr    hex 01 03 11 13         ; low bytes of PPU addresses for palette updates
 
 vram_addr_lo    ; low bytes of VRAM addresses of first bytes of vertical 5-tile slices
                 ; note: clock is 1 tile right & down off center of name table (fixed by scrolling)
@@ -485,10 +504,6 @@ vram_addr_lo    ; low bytes of VRAM addresses of first bytes of vertical 5-tile 
                 db 5*32+17, 5*32+18, 5*32+19  ; ones of minute
                 db 5*32+22, 5*32+23, 5*32+24  ; tens of second
                 db 5*32+26, 5*32+27, 5*32+28  ; ones of second
-
-times5          db  0,  5, 10, 15, 20, 25  ; multiply 0...17 by 5
-                db 30, 35, 40, 45, 50, 55  ; (vram_addr_lo index -> vram_buffer index)
-                db 60, 65, 70, 75, 80, 85
 
 ; --- Subs & arrays used in many places -----------------------------------------------------------
 
