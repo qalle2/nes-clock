@@ -1,5 +1,5 @@
 # nes-clock
-A 24-hour 7-segment clock for the [NES](https://en.wikipedia.org/wiki/Nintendo_Entertainment_System). Assembles with [ASM6](https://www.romhacking.net/utilities/674/).
+A 24-hour 7-segment clock for the [NES](https://en.wikipedia.org/wiki/Nintendo_Entertainment_System).
 
 ![screenshot](snap.png)
 
@@ -12,10 +12,8 @@ Table of contents:
 
 ## List of files
 * `assemble.sh`: a Linux script that assembles the program (warning: deletes files)
-* `clock.asm`: source code (ASM6)
+* `clock.asm`: source code (assembles with [ASM6](https://www.romhacking.net/utilities/674/))
 * `clock.nes.gz`: assembled program (iNES format, gzip compressed)
-* `hexdump.py`: creates `hexdump.txt`
-* `hexdump.txt`: assembled program in hexadecimal
 * `snap.png`: screenshot
 
 ## Technical info
