@@ -22,7 +22,7 @@ Table of contents:
 * CHR ROM: 0 KiB (uses CHR RAM)
 * name table mirroring: vertical
 * extra RAM: no
-* compatibility: NTSC only (the clock runs at 60.1 fps)
+* compatibility: NTSC only (runs too slow on PAL)
 
 ## How to use
 There are two modes.
@@ -37,13 +37,11 @@ Buttons:
 * left/right: move cursor
 * up/down: change digit at cursor
 * start: switch to run mode (hour must be 23 or less)
-* select: change palette
 
 ### Run mode
-* Time advances.
+* Time advances by one second every 60.1 frames.
 * The clock moves around the screen to prevent burn-in.
 * The cursor is hidden.
 
 Buttons:
 * start: switch to adjust mode
-* select: change palette

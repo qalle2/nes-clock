@@ -2,24 +2,22 @@
 
 ; --- Constants -----------------------------------------------------------------------------------
 
-; note: segment_buffer & palette_buffer: bytes to update to PPU on next VBlank
+; note: segment_buffer = bytes to update to PPU on next VBlank
 
 ; RAM
 segment_buffer  equ $00    ; segment tile buffer (6 digits * 3 columns * 5 rows = 90 = $5a bytes)
-palette_buffer  equ $5a    ; palette buffer (4 bytes)
-digits          equ $5e    ; digits of time (6 bytes, from tens of hour to ones of second)
-frame_counter   equ $64    ; frames left in current second (0-61)
-clock_running   equ $65    ; is clock running? (MSB: 0=no, 1=yes)
-run_main_loop   equ $66    ; is main loop allowed to run? (MSB: 0=no, 1=yes)
-pad_status      equ $67    ; joypad status
-prev_pad_status equ $68    ; previous joypad status
-cursor_pos      equ $69    ; cursor position (0-5)
-selected_pal    equ $6a    ; selected palette (0-4)
-scroll_h        equ $6b    ; horizontal scroll value
-scroll_v        equ $6c    ; vertical   scroll value
-moving_right    equ $6d    ; clock moving right instead of left? (MSB: 0=no, 1=yes)
-moving_down     equ $6e    ; clock moving down  instead of up?   (MSB: 0=no, 1=yes)
-move_counter    equ $6f    ; counts 0-255 repeatedly (used for moving the clock)
+digits          equ $5a    ; digits of time (6 bytes, from tens of hour to ones of second)
+frame_counter   equ $60    ; frames left in current second (0-61)
+clock_running   equ $61    ; is clock running? (MSB: 0=no, 1=yes)
+run_main_loop   equ $62    ; is main loop allowed to run? (MSB: 0=no, 1=yes)
+pad_status      equ $63    ; joypad status
+prev_pad_status equ $64    ; previous joypad status
+cursor_pos      equ $65    ; cursor position (0-5)
+scroll_h        equ $66    ; horizontal scroll value
+scroll_v        equ $67    ; vertical   scroll value
+moving_right    equ $68    ; clock moving right instead of left? (MSB: 0=no, 1=yes)
+moving_down     equ $69    ; clock moving down  instead of up?   (MSB: 0=no, 1=yes)
+move_counter    equ $6a    ; counts 0-255 repeatedly (used for moving the clock)
 sprite_data     equ $0200  ; OAM page ($100 bytes)
 
 ; memory-mapped registers
@@ -41,9 +39,16 @@ def_scroll_h    equ  3*8+4  ; default (centered) horizontal scroll value
 def_scroll_v    equ 12*8+4  ; default (centered) vertical   scroll value
 move_spd        equ 5       ; movement speed in run mode (0 = fastest, 8 = slowest)
 
+; colors
+col_bg          equ $0f     ; background (black)
+col_dim         equ $18     ; dim        (dark yellow)
+col_bright      equ $28     ; bright     (yellow)
+col_unused      equ $13     ; unused     (purple)
+
 ; --- iNES header ---------------------------------------------------------------------------------
 
                 ; see https://wiki.nesdev.org/w/index.php/INES
+                ;
                 base $0000
                 db "NES", $1a            ; file id
                 db 1, 0                  ; 16 KiB PRG ROM, 0 KiB CHR ROM (uses CHR RAM)
@@ -56,6 +61,7 @@ move_spd        equ 5       ; movement speed in run mode (0 = fastest, 8 = slowe
                 pad $fc00, $ff          ; last 1 KiB of CPU address space
 
 reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/Init_code
+                ;
                 sei                     ; ignore IRQs
                 cld                     ; disable decimal mode
                 ldx #%01000000
@@ -84,8 +90,7 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 dex
                 bpl -
 
-                inc selected_pal        ; init nonzero variables
-                lda #def_scroll_h
+                lda #def_scroll_h       ; init nonzero variables
                 sta scroll_h
                 lda #def_scroll_v
                 sta scroll_v
@@ -152,6 +157,7 @@ wait_vbl_start  bit ppu_status          ; wait until next VBlank starts
                 rts
 
 init_spr_data   ; initial sprite data (Y, tile, attributes, X)
+                ;
                 db 14*8-2-1, $01, %00000000, 11*8    ; #0: top    dot between hour   & minute
                 db 15*8+2-1, $01, %00000000, 11*8    ; #1: bottom dot between hour   & minute
                 db 14*8-2-1, $01, %00000000, 20*8    ; #2: top    dot between minute & second
@@ -163,10 +169,7 @@ init_palette    ; initial palette
                 ; - copied to all subpalettes
                 ; - only 1st background & sprite subpalette are used
                 ;
-                hex 0f                  ; background (black)
-                hex 18                  ; dim        (same as default color in dim_colors)
-                hex 13                  ; unused     (purple)
-                hex 28                  ; bright     (same as default color in bright_colors)
+                db col_bg, col_dim, col_unused, col_bright
 
 pt_data         ; pattern table data
                 ; - each nybble is an index to pt_data_bytes
@@ -230,27 +233,6 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 rol pad_status
                 bcc -
 
-                lda prev_pad_status     ; if nothing pressed on previous frame and start pressed
-                bne ++                  ; on this frame...
-                lda pad_status
-                and #%00100000
-                beq ++
-                ;
-                ldx selected_pal        ; increment palette
-                inx
-                cpx #5
-                bne +
-                ldx #0
-+               stx selected_pal
-
-++              ldx selected_pal        ; set up palette buffer according to selected palette
-                lda dim_colors,x
-                sta palette_buffer+0
-                sta palette_buffer+2
-                lda bright_colors,x
-                sta palette_buffer+1
-                sta palette_buffer+3
-
                 ; set up segment tile buffer
                 ; (6502 has no LDA zp,y so we waste 1 byte; swapping X/Y would waste 2 bytes)
                 ;
@@ -295,12 +277,8 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 bne --
 
                 bit clock_running       ; run mode-specific code
-                bmi +
-                jmp main_adj_mode
-+               jmp main_run_mode
-
-dim_colors      hex 16 18 1a 12 00      ; red, yellow, green, blue, white
-bright_colors   hex 26 28 2a 22 30      ; same
+                bpl main_adj_mode
+                jmp main_run_mode
 
 digit_tiles     ; Tiles of digits. Each nybble is a tile index. Each digit is 3*5 tile slots:
                 ;     $0 $5 $a
@@ -523,17 +501,6 @@ nmi             pha                     ; push A, X, Y
                 lda #>sprite_data
                 sta oam_dma
 
-                ldy #$3f                ; update palette from buffer
-                ldx #0                  ; Y = PPU address high, X = source index
-                ;
--               lda pal_upd_addr,x
-                jsr set_ppu_addr        ; Y, A -> address
-                lda palette_buffer,x
-                sta ppu_data
-                inx
-                cpx #4
-                bne -
-
                 ; print digit segments from buffer (6*3 vertical slices with 5 tiles each);
                 ; instructions executed in the loop: 6*3*20 = 360
                 ;
@@ -576,8 +543,6 @@ nmi             pha                     ; push A, X, Y
                 pla
 
 irq             rti                     ; note: IRQ unused
-
-pal_upd_addr    hex 01 03 11 13         ; low bytes of PPU addresses for palette updates
 
 seg_upd_addr    ; low bytes of VRAM addresses of first bytes of vertical 5-tile segment slices
                 ; (bottom right corner of NT0)
