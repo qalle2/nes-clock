@@ -40,10 +40,8 @@ def_scroll_v    equ 12*8+4  ; default (centered) vertical   scroll value
 move_spd        equ 5       ; movement speed in run mode (0 = fastest, 8 = slowest)
 
 ; colors
-col_bg          equ $0f     ; background (black)
-col_dim         equ $18     ; dim        (dark yellow)
-col_bright      equ $28     ; bright     (yellow)
-col_unused      equ $13     ; unused     (purple)
+color_bg        equ $0f     ; background (black)
+color_fg        equ $28     ; foreground (yellow)
 
 ; --- iNES header ---------------------------------------------------------------------------------
 
@@ -100,21 +98,19 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 ldy #$3f                ; set up palette (while still in VBlank)
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
                 ;
-                ldy #8                  ; copy same colors to all subpalettes
---              ldx #0
--               lda init_palette,x
+                ldy #color_bg           ; fill palette with 2 colors
+                lda #color_fg
+                ldx #16
+-               sty ppu_data
                 sta ppu_data
-                inx
-                cpx #4
+                dex
                 bne -
-                dey
-                bne --
 
                 ldy #$00                ; copy pattern table data
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
                 tax                     ; X = source index; Y = temporary
                 ;
--               lda pt_data,x
+--              lda pt_data,x
                 ;
                 pha                     ; use high nybble as index
                 lsr a
@@ -131,8 +127,18 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 lda pt_data_bytes,y
                 sta ppu_data
                 ;
-                inx
-                bpl -                   ; $80 bytes to read
+                inx                     ; increment source index
+                ;
+                txa                     ; if 4*n bytes read, write 2nd bitplane (8 * $00)
+                and #%00000011
+                bne +
+                ldy #8
+-               sta ppu_data
+                dey
+                bne -
+                ;
++               cpx #(16*4)
+                bne --
 
                 ; clear name & attribute table 0 & 1 (both because we scroll the screen)
                 ;
@@ -165,35 +171,28 @@ init_spr_data   ; initial sprite data (Y, tile, attributes, X)
                 db 18*8+4-1, $02, %00000000,  4*8+4  ; #4: cursor
 init_spr_end
 
-init_palette    ; initial palette
-                ; - copied to all subpalettes
-                ; - only 1st background & sprite subpalette are used
-                ;
-                db col_bg, col_dim, col_unused, col_bright
-
 pt_data         ; pattern table data
                 ; - each nybble is an index to pt_data_bytes
-                ; - we use colors 0/1/3 instead 0/1/2 to achieve better compression (fewer
-                ;   distinct bytes)
+                ; - 8 nybbles = 1st bitplane of each tile (2nd bitplane is always zeroes)
                 ; - top tip of segment is at bottom of tile and vice versa;
                 ;   same for left/right tip
                 ;
-                hex 00000000 00000000   ; tile $00: blank
-                hex 00666600 00466400   ; tile $01: dot (in colons)
-                hex 468e4444 04684440   ; tile $02: cursor (up arrow)
-                hex 0eeeeee0 0eeeeee0   ; tile $03: middle of segment - horizontal
-                hex 88888888 88888888   ; tile $04: middle of segment - vertical
-                hex 00000468 00000046   ; tile $05: segment tip - top
-                hex 86400000 64000000   ; tile $06: segment tip - bottom
-                hex 86400468 64000046   ; tile $07: segment tip - bottom & top
-                hex 01233210 00122100   ; tile $08: segment tip - left
-                hex 01233578 00122146   ; tile $09: segment tip - left & top
-                hex 87533210 64122100   ; tile $0a: segment tip - left & bottom
-                hex 87533578 64122146   ; tile $0b: segment tip - left & bottom & top
-                hex 09bddb90 009bb900   ; tile $0c: segment tip - right
-                hex 09bddca8 009bb946   ; tile $0d: segment tip - right & top
-                hex 8acddb90 649bb900   ; tile $0e: segment tip - right & bottom
-                hex 8acddca8 649bb946   ; tile $0f: segment tip - right & bottom & top
+                hex 00000000            ; tile $00: blank
+                hex 00466400            ; tile $01: dot (in colons)
+                hex 468e4444            ; tile $02: cursor (up arrow)
+                hex 0eeeeee0            ; tile $03: middle of segment - horizontal
+                hex 88888888            ; tile $04: middle of segment - vertical
+                hex 00000468            ; tile $05: segment tip - top
+                hex 86400000            ; tile $06: segment tip - bottom
+                hex 86400468            ; tile $07: segment tip - bottom & top
+                hex 01233210            ; tile $08: segment tip - left
+                hex 01233578            ; tile $09: segment tip - left & top
+                hex 87533210            ; tile $0a: segment tip - left & bottom
+                hex 87533578            ; tile $0b: segment tip - left & bottom & top
+                hex 09bddb90            ; tile $0c: segment tip - right
+                hex 09bddca8            ; tile $0d: segment tip - right & top
+                hex 8acddb90            ; tile $0e: segment tip - right & bottom
+                hex 8acddca8            ; tile $0f: segment tip - right & bottom & top
 
 pt_data_bytes   ; actual pattern table bytes; see pt_data
                 ;
