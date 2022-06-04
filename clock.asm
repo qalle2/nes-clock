@@ -82,7 +82,7 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 inx
                 bne -
 
-                ldx #(5*4-1)            ; copy initial sprite data
+                ldx #(4-1)              ; copy initial sprite data
 -               lda init_spr_data,x
                 sta sprite_data,x
                 dex
@@ -137,7 +137,7 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 dey
                 bne -
                 ;
-+               cpx #(16*4)
++               cpx #($f*4)
                 bne --
 
                 ; clear name & attribute table 0 & 1 (both because we scroll the screen)
@@ -153,6 +153,19 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 dey
                 bne -
 
+                ldy #$23                ; print colons between digits
+                ldx #(4-1)              ; X = source index, Y = PPU address high
+                ;
+-               lda colon_addr,x
+                jsr set_ppu_addr        ; Y*$100 + A -> address
+                lda #$04
+                sta ppu_data
+                lda #$08
+                sta ppu_data
+                ;
+                dex
+                bpl -
+
                 jsr wait_vbl_start      ; wait until next VBlank starts
                 jsr set_ppu_regs        ; set ppu_scroll/ppu_ctrl/ppu_mask
                 jmp main_loop
@@ -163,13 +176,7 @@ wait_vbl_start  bit ppu_status          ; wait until next VBlank starts
                 rts
 
 init_spr_data   ; initial sprite data (Y, tile, attributes, X)
-                ;
-                db 14*8-2-1, $01, %00000000, 11*8    ; #0: top    dot between hour   & minute
-                db 15*8+2-1, $01, %00000000, 11*8    ; #1: bottom dot between hour   & minute
-                db 14*8-2-1, $01, %00000000, 20*8    ; #2: top    dot between minute & second
-                db 15*8+2-1, $01, %00000000, 20*8    ; #3: bottom dot between minute & second
-                db 18*8+4-1, $02, %00000000,  4*8+4  ; #4: cursor
-init_spr_end
+                db 18*8+4-1, $0e, %00000000, 4*8+4  ; cursor
 
 pt_data         ; pattern table data
                 ; - each nybble is an index to pt_data_bytes
@@ -177,22 +184,21 @@ pt_data         ; pattern table data
                 ; - top tip of segment is at bottom of tile and vice versa;
                 ;   same for left/right tip
                 ;
-                hex 00000000            ; tile $00: blank
-                hex 00466400            ; tile $01: dot (in colons)
-                hex 468e4444            ; tile $02: cursor (up arrow)
-                hex 0eeeeee0            ; tile $03: middle of segment - horizontal
-                hex 88888888            ; tile $04: middle of segment - vertical
-                hex 00000468            ; tile $05: segment tip - top
-                hex 86400000            ; tile $06: segment tip - bottom
-                hex 86400468            ; tile $07: segment tip - bottom & top
-                hex 01233210            ; tile $08: segment tip - left
-                hex 01233578            ; tile $09: segment tip - left & top
-                hex 87533210            ; tile $0a: segment tip - left & bottom
-                hex 87533578            ; tile $0b: segment tip - left & bottom & top
-                hex 09bddb90            ; tile $0c: segment tip - right
-                hex 09bddca8            ; tile $0d: segment tip - right & top
-                hex 8acddb90            ; tile $0e: segment tip - right & bottom
-                hex 8acddca8            ; tile $0f: segment tip - right & bottom & top
+                hex 00000000            ; tile $00: blank ("segment tip - none")
+                hex 00000468            ; tile $01: segment tip - top
+                hex 86400000            ; tile $02: segment tip - bottom
+                hex 86400468            ; tile $03: segment tip - bottom & top
+                hex 01233210            ; tile $04: segment tip - left
+                hex 01233578            ; tile $05: segment tip - left & top
+                hex 87533210            ; tile $06: segment tip - left & bottom
+                hex 87533578            ; tile $07: segment tip - left & bottom & top
+                hex 09bddb90            ; tile $08: segment tip - right
+                hex 09bddca8            ; tile $09: segment tip - right & top
+                hex 8acddb90            ; tile $0a: segment tip - right & bottom
+                hex 8acddca8            ; tile $0b: segment tip - right & bottom & top
+                hex 0eeeeee0            ; tile $0c: middle of segment - horizontal
+                hex 88888888            ; tile $0d: middle of segment - vertical
+                hex 468e4444            ; tile $0e: cursor (up arrow)
 
 pt_data_bytes   ; actual pattern table bytes; see pt_data
                 ;
@@ -211,6 +217,8 @@ pt_data_bytes   ; actual pattern table bytes; see pt_data
                 db %11011000            ; index $c
                 db %11100000            ; index $d
                 db %11111111            ; index $e
+
+colon_addr      hex 4e 57 8e 97         ; low bytes of PPU addresses of colons
 
 ; --- Main loop - common --------------------------------------------------------------------------
 
@@ -292,16 +300,16 @@ digit_tiles     ; Tiles of digits. Each nybble is a tile index. Each digit is 3*
                 ;
                 ;   01 23 45 67 89 ab cd ef  <- tile slot (hexadecimal)
                 ;   -- -- -- -- -- -- -- --
-                hex 94 74 a3 00 03 d4 74 e0  ; "0"
-                hex 00 00 00 00 00 54 74 60  ; "1"
-                hex 80 94 a3 03 03 d4 e0 c0  ; "2"
-                hex 80 80 83 03 03 d4 f4 e0  ; "3"
-                hex 54 a0 00 03 00 54 f4 60  ; "4"
-                hex 94 a0 83 03 03 c0 d4 e0  ; "5"
-                hex 94 b4 a3 03 03 c0 d4 e0  ; "6"
-                hex 80 00 03 00 00 d4 74 60  ; "7"
-                hex 94 b4 a3 03 03 d4 f4 e0  ; "8"
-                hex 94 a0 83 03 03 d4 f4 e0  ; "9"
+                hex 5d 3d 6c 00 0c 9d 3d a0  ; "0"
+                hex 00 00 00 00 00 1d 3d 20  ; "1"
+                hex 40 5d 6c 0c 0c 9d a0 80  ; "2"
+                hex 40 40 4c 0c 0c 9d bd a0  ; "3"
+                hex 1d 60 00 0c 00 1d bd 20  ; "4"
+                hex 5d 60 4c 0c 0c 80 9d a0  ; "5"
+                hex 5d 7d 6c 0c 0c 80 9d a0  ; "6"
+                hex 40 00 0c 00 00 9d 3d 20  ; "7"
+                hex 5d 7d 6c 0c 0c 9d bd a0  ; "8"
+                hex 5d 60 4c 0c 0c 9d bd a0  ; "9"
 
 ; --- Main loop - adjust mode ---------------------------------------------------------------------
 
@@ -357,7 +365,7 @@ start_clock     lda digits+0            ; if hour <= 23...
                 bcs buttons_done
                 ;
 +               lda #$ff                ; hide cursor sprite
-                sta sprite_data+4*4+0
+                sta sprite_data+0
                 lda #60                 ; restart current second
                 sta frame_counter
                 sec                     ; set flag to switch to run mode
@@ -365,7 +373,7 @@ start_clock     lda digits+0            ; if hour <= 23...
 
 buttons_done    ldx cursor_pos          ; update X position of cursor sprite
                 lda cursor_x,x
-                sta sprite_data+4*4+3
+                sta sprite_data+3
                 jmp main_loop           ; return to common main loop
 
 cursor_x        db  4*8+4,  8*8+4       ; cursor sprite X positions
@@ -410,74 +418,43 @@ time_math_done  lda prev_pad_status     ; if nothing pressed on previous frame a
                 and #%00010000
                 beq start_chk_done
                 ;
-                lda init_spr_data+4*4   ; show cursor
-                sta sprite_data+4*4+0
+                lda init_spr_data+0     ; show cursor
+                sta sprite_data+0
                 lda #def_scroll_h       ; restore default scroll values
                 sta scroll_h
                 lda #def_scroll_v
                 sta scroll_v
-                ldx #(4*4-1)            ; restore default dot sprites
--               lda init_spr_data,x
-                sta sprite_data,x
-                dex
-                bpl -
                 lsr clock_running       ; clear flag to switch to adjust mode
 
 start_chk_done  lda move_counter        ; move clock by 1 pixel every 2**move_spd frames
-                and #((1<<move_spd)-1)
+                and #((1<<move_spd)-1)  ; (clock is at bottom right corner of NT0)
                 bne vert_move_done
 
-                ldx #(3*4)              ; move clock horizontally (X = sprite offset)
-                bit moving_right
+                bit moving_right        ; move clock horizontally
                 bmi +
                 ;
--               dec sprite_data+3,x     ; move dot sprites left
-                dex
-                dex
-                dex
-                dex
-                bpl -
-                inc scroll_h            ; move digits left by incrementing scroll value
+                inc scroll_h            ; move clock left
                 lda scroll_h
                 cmp #(7*8)
                 bne horiz_move_done
                 ror moving_right        ; set flag (carry is always set)
                 bne horiz_move_done     ; unconditional
-+               ;
--               inc sprite_data+3,x     ; move dot sprites right
-                dex
-                dex
-                dex
-                dex
-                bpl -
-                dec scroll_h            ; move digits right by decrementing scroll value
+                ;
++               dec scroll_h            ; move clock right
                 bne horiz_move_done
                 lsr moving_right        ; clear flag
 
-horiz_move_done ldx #(3*4)              ; move clock vertically (X = sprite offset)
-                bit moving_down
+horiz_move_done bit moving_down         ; move clock vertically
                 bmi +
                 ;
--               dec sprite_data+0,x     ; move dot sprites up
-                dex
-                dex
-                dex
-                dex
-                bpl -
-                inc scroll_v            ; move digits up by incrementing scroll value
+                inc scroll_v            ; move clock up
                 lda scroll_v
                 cmp #(24*8)
                 bne vert_move_done
                 ror moving_down         ; set flag (carry is always set)
                 bne vert_move_done      ; unconditional
-+               ;
--               inc sprite_data+0,x     ; move dot sprites down
-                dex
-                dex
-                dex
-                dex
-                bpl -
-                dec scroll_v            ; move digits down by decrementing scroll value
+                ;
++               dec scroll_v            ; move clock down
                 lda scroll_v
                 cmp #(1*8)
                 bne vert_move_done
@@ -495,6 +472,7 @@ nmi             pha                     ; push A, X, Y
                 pha
 
                 bit ppu_status          ; reset ppu_scroll/ppu_addr latch
+
                 lda #$00                ; do sprite DMA
                 sta oam_addr
                 lda #>sprite_data
