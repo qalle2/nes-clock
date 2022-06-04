@@ -18,7 +18,8 @@ scroll_v        equ $67    ; vertical   scroll value
 moving_right    equ $68    ; clock moving right instead of left? (MSB: 0=no, 1=yes)
 moving_down     equ $69    ; clock moving down  instead of up?   (MSB: 0=no, 1=yes)
 move_counter    equ $6a    ; counts 0-255 repeatedly (used for moving the clock)
-sprite_data     equ $0200  ; OAM page ($100 bytes)
+digit_tiles     equ $0200  ; tiles of digits (10*16 = $a0 bytes)
+sprite_data     equ $0300  ; OAM page ($100 bytes)
 
 ; memory-mapped registers
 ppu_ctrl        equ $2000
@@ -92,6 +93,27 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 sta scroll_h
                 lda #def_scroll_v
                 sta scroll_v
+
+                ldx #0                  ; extract digit_tiles_rom array to RAM
+                ldy #0                  ; X/Y = source/target index
+                ;
+-               lda digit_tiles_rom,x   ; high nybble to byte
+                pha
+                lsr a
+                lsr a
+                lsr a
+                lsr a
+                sta digit_tiles,y
+                iny
+                ;
+                pla                     ; low nybble to byte
+                and #%00001111
+                sta digit_tiles,y
+                iny
+                ;
+                inx
+                cpx #(10*8)
+                bne -
 
                 jsr wait_vbl_start      ; wait until next VBlank starts
 
@@ -178,6 +200,30 @@ wait_vbl_start  bit ppu_status          ; wait until next VBlank starts
 init_spr_data   ; initial sprite data (Y, tile, attributes, X)
                 db 18*8+4-1, $0e, %00000000, 4*8+4  ; cursor
 
+digit_tiles_rom ; Tiles of digits. Each nybble is a tile index. Each digit is 3*5 tile slots:
+                ;     $0 $5 $a
+                ;     $1 $6 $b
+                ;     $2 $7 $c
+                ;     $3 $8 $d
+                ;     $4 $9 $e
+                ; Tile slots $6, $8                    : always empty
+                ; Tile slots $1, $3, $5, $7, $9, $b, $d: middle parts of segments
+                ; Tile slots $0, $2, $4, $a, $c, $e    : tips of segments
+                ; Tile slot  $f                        : padding (not copied)
+                ;
+                ;   01 23 45 67 89 ab cd ef  <- tile slot (hexadecimal)
+                ;   -- -- -- -- -- -- -- --
+                hex 5d 3d 6c 00 0c 9d 3d a0  ; "0"
+                hex 00 00 00 00 00 1d 3d 20  ; "1"
+                hex 40 5d 6c 0c 0c 9d a0 80  ; "2"
+                hex 40 40 4c 0c 0c 9d bd a0  ; "3"
+                hex 1d 60 00 0c 00 1d bd 20  ; "4"
+                hex 5d 60 4c 0c 0c 80 9d a0  ; "5"
+                hex 5d 7d 6c 0c 0c 80 9d a0  ; "6"
+                hex 40 00 0c 00 00 9d 3d 20  ; "7"
+                hex 5d 7d 6c 0c 0c 9d bd a0  ; "8"
+                hex 5d 60 4c 0c 0c 9d bd a0  ; "9"
+
 pt_data         ; pattern table data
                 ; - each nybble is an index to pt_data_bytes
                 ; - 8 nybbles = 1st bitplane of each tile (2nd bitplane is always zeroes)
@@ -241,75 +287,37 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 bcc -
 
                 ; set up segment tile buffer
-                ; (6502 has no LDA zp,y so we waste 1 byte; swapping X/Y would waste 2 bytes)
                 ;
                 ldy #0                  ; source index (digits/digit_tiles)
                 ldx #0                  ; target index (segment_buffer)
                 ;
 --              tya                     ; push digits index
                 pha
-                ;
                 lda digits,y            ; digit_tiles index -> Y
+                asl a                   ; (6502 has no LDA/STA zp,y so we waste 1 byte)
                 asl a
                 asl a
                 asl a
                 tay
                 ;
--               lda digit_tiles,y       ; inner loop: read 8 bytes from digit_tiles and copy
-                lsr a                   ; first 3*5 nybbles (tiles) to segment_buffer
-                lsr a
-                lsr a
-                lsr a
-                sta segment_buffer,x
+-               lda digit_tiles,y       ; inner loop: copy first 3*5 bytes (tiles) from
+                sta segment_buffer,x    ; digit_tiles to segment_buffer
+                iny
                 inx
-                ;
-                tya                     ; exit in the middle of 8th round
-                and #%00000111
-                cmp #%00000111
-                beq +
-                ;
-                lda digit_tiles,y
+                tya
                 and #%00001111
-                sta segment_buffer,x
-                inx
+                cmp #%00001111
+                bne -
                 ;
-                iny
-                bpl -                   ; continue inner loop (unconditional)
-                ;
-+               pla                     ; exited inner loop; pull digits index & increment
+                pla                     ; pull digits index & increment
                 tay
                 iny
-                ;
                 cpy #6
                 bne --
 
                 bit clock_running       ; run mode-specific code
                 bpl main_adj_mode
                 jmp main_run_mode
-
-digit_tiles     ; Tiles of digits. Each nybble is a tile index. Each digit is 3*5 tile slots:
-                ;     $0 $5 $a
-                ;     $1 $6 $b
-                ;     $2 $7 $c
-                ;     $3 $8 $d
-                ;     $4 $9 $e
-                ; Tile slots $6, $8                    : always empty
-                ; Tile slots $1, $3, $5, $7, $9, $b, $d: middle parts of segments
-                ; Tile slots $0, $2, $4, $a, $c, $e    : tips of segments
-                ; Tile slot  $f                        : padding (not copied)
-                ;
-                ;   01 23 45 67 89 ab cd ef  <- tile slot (hexadecimal)
-                ;   -- -- -- -- -- -- -- --
-                hex 5d 3d 6c 00 0c 9d 3d a0  ; "0"
-                hex 00 00 00 00 00 1d 3d 20  ; "1"
-                hex 40 5d 6c 0c 0c 9d a0 80  ; "2"
-                hex 40 40 4c 0c 0c 9d bd a0  ; "3"
-                hex 1d 60 00 0c 00 1d bd 20  ; "4"
-                hex 5d 60 4c 0c 0c 80 9d a0  ; "5"
-                hex 5d 7d 6c 0c 0c 80 9d a0  ; "6"
-                hex 40 00 0c 00 00 9d 3d 20  ; "7"
-                hex 5d 7d 6c 0c 0c 9d bd a0  ; "8"
-                hex 5d 60 4c 0c 0c 9d bd a0  ; "9"
 
 ; --- Main loop - adjust mode ---------------------------------------------------------------------
 
