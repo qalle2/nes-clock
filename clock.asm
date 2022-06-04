@@ -18,7 +18,7 @@ scroll_v        equ $67    ; vertical   scroll value
 moving_right    equ $68    ; clock moving right instead of left? (MSB: 0=no, 1=yes)
 moving_down     equ $69    ; clock moving down  instead of up?   (MSB: 0=no, 1=yes)
 move_counter    equ $6a    ; counts 0-255 repeatedly (used for moving the clock)
-digit_tiles     equ $0200  ; tiles of digits (10*16 = $a0 bytes)
+digit_tiles     equ $0200  ; tiles of digits (10*16 = $a0 bytes; byte = tile index)
 sprite_data     equ $0300  ; OAM page ($100 bytes)
 
 ; memory-mapped registers
@@ -209,7 +209,7 @@ digit_tiles_rom ; Tiles of digits. Each nybble is a tile index. Each digit is 3*
                 ; Tile slots $6, $8                    : always empty
                 ; Tile slots $1, $3, $5, $7, $9, $b, $d: middle parts of segments
                 ; Tile slots $0, $2, $4, $a, $c, $e    : tips of segments
-                ; Tile slot  $f                        : padding (not copied)
+                ; Tile slot  $f                        : padding (unused)
                 ;
                 ;   01 23 45 67 89 ab cd ef  <- tile slot (hexadecimal)
                 ;   -- -- -- -- -- -- -- --
@@ -527,7 +527,7 @@ nmi             pha                     ; push A, X, Y
                 tax
                 pla
 
-irq             rti                     ; note: IRQ unused
+irq             rti                     ; IRQ unused
 
 seg_upd_addr    ; low bytes of VRAM addresses of first bytes of vertical 5-tile segment slices
                 ; (bottom right corner of NT0)
@@ -561,4 +561,4 @@ max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of individual digits
 ; --- Interrupt vectors ---------------------------------------------------------------------------
 
                 pad $fffa, $ff
-                dw nmi, reset, irq      ; note: IRQ unused
+                dw nmi, reset, irq      ; IRQ unused
