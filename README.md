@@ -13,7 +13,7 @@ Table of contents:
 ## List of files
 * `assemble.sh`: a Linux script that assembles the program (warning: deletes files)
 * `chr.bin.gz`: CHR ROM data (gzip compressed)
-* `chr.png`: CHR ROM data as an image
+* `chr.png`: CHR ROM data as an image (can be encoded with `nes_chr_encode.py` from [my NES utilities](https://github.com/qalle2/nes-util))
 * `clock.asm`: source code (assembles with [ASM6](https://www.romhacking.net/utilities/674/))
 * `clock.nes.gz`: assembled program (iNES format, gzip compressed)
 * `snap.png`: screenshot
@@ -23,7 +23,6 @@ Table of contents:
 * PRG ROM: 16 KiB
 * CHR ROM: 8 KiB
 * name table mirroring: vertical
-* extra RAM: no
 * compatibility: NTSC only (runs too slow on PAL)
 
 ## How to use

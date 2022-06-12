@@ -41,8 +41,10 @@ def_scroll_v    equ 12*8+4  ; default (centered) vertical   scroll value
 move_spd        equ 5       ; movement speed in run mode (0 = fastest, 8 = slowest)
 
 ; colors
-color_bg        equ $0f     ; background (black)
-color_fg        equ $28     ; foreground (yellow)
+color_bg        equ $0f     ; background       (black)
+color_dim       equ $18     ; segment - dim    (dark yellow)
+color_bright    equ $28     ; segment - bright (yellow)
+color_unused    equ $25     ; unused           (pink)
 
 ; --- iNES header ---------------------------------------------------------------------------------
 
@@ -50,7 +52,7 @@ color_fg        equ $28     ; foreground (yellow)
                 ;
                 base $0000
                 db "NES", $1a            ; file id
-                db 1, 1                  ; 16 KiB PRG ROM, 8 KiB PRG ROM
+                db 1, 1                  ; 16 KiB PRG ROM, 8 KiB CHR ROM
                 db %00000001, %00000000  ; NROM mapper, vertical name table mirroring
                 pad $0010, $00           ; unused
 
@@ -119,13 +121,15 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 ldy #$3f                ; set up palette (while still in VBlank)
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
                 ;
-                ldy #color_bg           ; fill palette with 2 colors
-                lda #color_fg
-                ldx #16
--               sty ppu_data
+                ldy #8                  ; copy same colors to all subpalettes
+--              ldx #0
+-               lda palette,x
                 sta ppu_data
-                dex
+                inx
+                cpx #4
                 bne -
+                dey
+                bne --
 
                 ; clear name & attribute table 0 & 1 (both because we scroll the screen)
                 ;
@@ -145,9 +149,9 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 ;
 -               lda colon_addr,x
                 jsr set_ppu_addr        ; Y*$100 + A -> address
-                lda #$04
+                lda #$0e
                 sta ppu_data
-                lda #$08
+                lda #$0f
                 sta ppu_data
                 ;
                 dex
@@ -163,7 +167,7 @@ wait_vbl_start  bit ppu_status          ; wait until next VBlank starts
                 rts
 
 init_spr_data   ; initial sprite data (Y, tile, attributes, X)
-                db 18*8+4-1, $0e, %00000000, 4*8+4  ; cursor
+                db 18*8+4-1, $10, %00000000, 4*8+4  ; cursor
 
 digit_tiles_rom ; Tiles of digits. Each nybble is a tile index. Each digit is 3*5 tile slots:
                 ;     $0 $5 $a
@@ -188,6 +192,8 @@ digit_tiles_rom ; Tiles of digits. Each nybble is a tile index. Each digit is 3*
                 hex 40 00 0c 00 00 9d 3d 20  ; "7"
                 hex 5d 7d 6c 0c 0c 9d bd a0  ; "8"
                 hex 5d 60 4c 0c 0c 9d bd a0  ; "9"
+
+palette         db color_bg, color_dim, color_bright, color_unused  ; copied to all subpalettes
 
 colon_addr      hex 4e 57 8e 97         ; low bytes of PPU addresses of colons
 
