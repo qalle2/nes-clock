@@ -50,14 +50,13 @@ color_fg        equ $28     ; foreground (yellow)
                 ;
                 base $0000
                 db "NES", $1a            ; file id
-                db 1, 0                  ; 16 KiB PRG ROM, 0 KiB CHR ROM (uses CHR RAM)
+                db 1, 1                  ; 16 KiB PRG ROM, 8 KiB PRG ROM
                 db %00000001, %00000000  ; NROM mapper, vertical name table mirroring
                 pad $0010, $00           ; unused
 
 ; --- Initialization ------------------------------------------------------------------------------
 
-                base $c000              ; start of PRG ROM
-                pad $fc00, $ff          ; last 1 KiB of CPU address space
+                base $c000              ; last 16 KiB of CPU address space
 
 reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/Init_code
                 ;
@@ -128,40 +127,6 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 dex
                 bne -
 
-                ldy #$00                ; copy pattern table data
-                jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
-                tax                     ; X = source index; Y = temporary
-                ;
---              lda pt_data,x
-                ;
-                pha                     ; use high nybble as index
-                lsr a
-                lsr a
-                lsr a
-                lsr a
-                tay
-                lda pt_data_bytes,y
-                sta ppu_data
-                ;
-                pla                     ; use low nybble as index
-                and #%00001111
-                tay
-                lda pt_data_bytes,y
-                sta ppu_data
-                ;
-                inx                     ; increment source index
-                ;
-                txa                     ; if 4*n bytes read, write 2nd bitplane (8 * $00)
-                and #%00000011
-                bne +
-                ldy #8
--               sta ppu_data
-                dey
-                bne -
-                ;
-+               cpx #($f*4)
-                bne --
-
                 ; clear name & attribute table 0 & 1 (both because we scroll the screen)
                 ;
                 ldy #$20                ; VRAM address $2000
@@ -223,46 +188,6 @@ digit_tiles_rom ; Tiles of digits. Each nybble is a tile index. Each digit is 3*
                 hex 40 00 0c 00 00 9d 3d 20  ; "7"
                 hex 5d 7d 6c 0c 0c 9d bd a0  ; "8"
                 hex 5d 60 4c 0c 0c 9d bd a0  ; "9"
-
-pt_data         ; pattern table data
-                ; - each nybble is an index to pt_data_bytes
-                ; - 8 nybbles = 1st bitplane of each tile (2nd bitplane is always zeroes)
-                ; - top tip of segment is at bottom of tile and vice versa;
-                ;   same for left/right tip
-                ;
-                hex 00000000            ; tile $00: blank ("segment tip - none")
-                hex 00000468            ; tile $01: segment tip - top
-                hex 86400000            ; tile $02: segment tip - bottom
-                hex 86400468            ; tile $03: segment tip - bottom & top
-                hex 01233210            ; tile $04: segment tip - left
-                hex 01233578            ; tile $05: segment tip - left & top
-                hex 87533210            ; tile $06: segment tip - left & bottom
-                hex 87533578            ; tile $07: segment tip - left & bottom & top
-                hex 09bddb90            ; tile $08: segment tip - right
-                hex 09bddca8            ; tile $09: segment tip - right & top
-                hex 8acddb90            ; tile $0a: segment tip - right & bottom
-                hex 8acddca8            ; tile $0b: segment tip - right & bottom & top
-                hex 0eeeeee0            ; tile $0c: middle of segment - horizontal
-                hex 88888888            ; tile $0d: middle of segment - vertical
-                hex 468e4444            ; tile $0e: cursor (up arrow)
-
-pt_data_bytes   ; actual pattern table bytes; see pt_data
-                ;
-                db %00000000            ; index $0
-                db %00000001            ; index $1
-                db %00000011            ; index $2
-                db %00000111            ; index $3
-                db %00011000            ; index $4
-                db %00011011            ; index $5
-                db %00111100            ; index $6
-                db %00111101            ; index $7
-                db %01111110            ; index $8
-                db %10000000            ; index $9
-                db %10111100            ; index $a
-                db %11000000            ; index $b
-                db %11011000            ; index $c
-                db %11100000            ; index $d
-                db %11111111            ; index $e
 
 colon_addr      hex 4e 57 8e 97         ; low bytes of PPU addresses of colons
 
@@ -562,3 +487,9 @@ max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of individual digits
 
                 pad $fffa, $ff
                 dw nmi, reset, irq      ; IRQ unused
+
+; --- CHR ROM -------------------------------------------------------------------------------------
+
+                base $0000
+                incbin "chr.bin"
+                pad $2000, $ff
