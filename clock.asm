@@ -374,12 +374,14 @@ start_chk_done  lda move_counter        ; move clock by 1 pixel every 2**move_sp
                 ;
                 inc scroll_h            ; move clock left
                 lda scroll_h
-                cmp #(7*8)
+                cmp #(6*8)
                 bne horiz_move_done
                 ror moving_right        ; set flag (carry is always set)
                 bne horiz_move_done     ; unconditional
                 ;
 +               dec scroll_h            ; move clock right
+                lda scroll_h
+                cmp #8
                 bne horiz_move_done
                 lsr moving_right        ; clear flag
 
@@ -388,14 +390,14 @@ horiz_move_done bit moving_down         ; move clock vertically
                 ;
                 inc scroll_v            ; move clock up
                 lda scroll_v
-                cmp #(24*8)
+                cmp #(23*8)
                 bne vert_move_done
                 ror moving_down         ; set flag (carry is always set)
                 bne vert_move_done      ; unconditional
                 ;
 +               dec scroll_v            ; move clock down
                 lda scroll_v
-                cmp #(1*8)
+                cmp #(2*8)
                 bne vert_move_done
                 lsr moving_down         ; clear flag
 
