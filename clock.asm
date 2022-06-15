@@ -17,7 +17,8 @@ scroll_h        equ $66    ; horizontal scroll value
 scroll_v        equ $67    ; vertical   scroll value
 moving_right    equ $68    ; clock moving right instead of left? (MSB: 0=no, 1=yes)
 moving_down     equ $69    ; clock moving down  instead of up?   (MSB: 0=no, 1=yes)
-move_counter    equ $6a    ; counts 0-255 repeatedly (used for moving the clock)
+pal_mode        equ $6a    ; use PAL mode instead of NTSC?       (0=no, 1=yes)
+move_counter    equ $6b    ; counts 0-255 repeatedly (used for moving the clock)
 digit_tiles     equ $0200  ; tiles of digits (10*16 = $a0 bytes; byte = tile index)
 sprite_data     equ $0300  ; OAM page ($100 bytes)
 
@@ -84,7 +85,7 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 inx
                 bne -
 
-                ldx #(4-1)              ; copy initial sprite data
+                ldx #(3*4-1)            ; copy initial sprite data
 -               lda init_spr_data,x
                 sta sprite_data,x
                 dex
@@ -167,7 +168,10 @@ wait_vbl_start  bit ppu_status          ; wait until next VBlank starts
                 rts
 
 init_spr_data   ; initial sprite data (Y, tile, attributes, X)
-                db 18*8+4-1, $10, %00000000, 4*8+4  ; cursor
+                ;
+                db 18*8+4-1, $10, %00000000, 4*8+4  ; #0: cursor
+                db 11*8-1,   $11, %00000000, 15*8   ; #1: "NTSC" - left half
+                db 11*8-1,   $12, %00000000, 16*8   ; #2: "NTSC" - right half
 
 digit_tiles_rom ; Tiles of digits. Each nybble is a tile index. Each digit is 3*5 tile slots:
                 ;     $0 $5 $a
@@ -268,6 +272,8 @@ main_adj_mode   lda prev_pad_status     ; ignore buttons if something was presse
                 bcs inc_digit           ; d-pad up
                 lsr a
                 bcs start_clock         ; start button
+                lsr a
+                bcs toggle_mode         ; select button
                 ;
                 bcc buttons_done        ; unconditional
 
@@ -303,16 +309,31 @@ start_clock     lda digits+0            ; if hour <= 23...
                 cmp #4
                 bcs buttons_done
                 ;
-+               lda #$ff                ; hide cursor sprite
-                sta sprite_data+0
-                lda #60                 ; restart current second
++               lda #$ff                ; hide sprites (cursor, "NTSC"/"PAL")
+                sta sprite_data+0+0
+                sta sprite_data+4+0
+                sta sprite_data+2*4+0
+                ldx pal_mode            ; restart current second
+                lda second_lengths,x
                 sta frame_counter
                 sec                     ; set flag to switch to run mode
                 ror clock_running
+                bne buttons_done        ; unconditional
 
-buttons_done    ldx cursor_pos          ; update X position of cursor sprite
+toggle_mode     lda pal_mode            ; toggle between NTSC/PAL
+                eor #%00000001
+                sta pal_mode
+
+buttons_done    ldx cursor_pos          ; update sprites (cursor X position, "NTSC/PAL" tiles)
                 lda cursor_x,x
-                sta sprite_data+3
+                sta sprite_data+0+3
+                lda pal_mode
+                asl a
+                adc #$11                ; carry is always clear
+                sta sprite_data+1*4+1
+                adc #1                  ; carry is always clear
+                sta sprite_data+2*4+1
+
                 jmp main_loop           ; return to common main loop
 
 cursor_x        db  4*8+4,  8*8+4       ; cursor sprite X positions
@@ -324,13 +345,29 @@ cursor_x        db  4*8+4,  8*8+4       ; cursor sprite X positions
 main_run_mode   dec frame_counter       ; count down; if zero, a second has elapsed
                 bne time_math_done
 
-                lda #60                 ; reinitialize frame counter
-                sta frame_counter       ; 60.1 on average (60 + an extra frame every 10 seconds)
-                lda digits+5            ; should be 60.0988 according to NESDev wiki
+                ; reinitialize frame counter
+                ; NES frame rates: https://www.nesdev.org/wiki/Cycle_reference_chart
+                ;
+                ldx pal_mode            ; integer fps
+                lda second_lengths,x
+                sta frame_counter
+                txa
                 bne +
-                inc frame_counter
+                ;
+                lda digits+5            ; NTSC: +1 frame every 10 s, or +1/10 fps on average
+                beq extra_frame
+                bne cntr_init_done      ; unconditional
+                ;
++               lda digits+5            ; PAL: +1 frame every 2 min, or +1/120 fps on average
+                ora digits+4
+                bne cntr_init_done
+                lda digits+3
+                lsr a
+                bcs cntr_init_done
+                ;
+extra_frame     inc frame_counter
 
-+               ldx #(6-1)              ; increment digits (X = which digit)
+cntr_init_done  ldx #(6-1)              ; increment digits (X = which digit)
                 ;
 -               cpx #1                  ; special logic: reset ones of hour if hour = 23
                 bne +
@@ -357,8 +394,14 @@ time_math_done  lda prev_pad_status     ; if nothing pressed on previous frame a
                 and #%00010000
                 beq start_chk_done
                 ;
-                lda init_spr_data+0     ; show cursor
-                sta sprite_data+0
+                ldx #(2*4)              ; show sprites (restore original Y values)
+-               lda init_spr_data+0,x
+                sta sprite_data+0,x
+                dex
+                dex
+                dex
+                dex
+                bpl -
                 lda #def_scroll_h       ; restore default scroll values
                 sta scroll_h
                 lda #def_scroll_v
@@ -490,6 +533,8 @@ set_ppu_regs    lda scroll_h            ; set scroll value
                 rts
 
 max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of individual digits
+
+second_lengths  db 60, 50               ; frames/second in NTSC/PAL mode
 
 ; --- Interrupt vectors ---------------------------------------------------------------------------
 

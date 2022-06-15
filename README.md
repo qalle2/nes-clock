@@ -23,7 +23,7 @@ Table of contents:
 * PRG ROM: 16 KiB
 * CHR ROM: 8 KiB
 * name table mirroring: vertical
-* compatibility: NTSC only (runs too slow on PAL)
+* compatibility: NTSC &amp; PAL
 
 ## How to use
 There are two modes.
@@ -37,12 +37,14 @@ There are two modes.
 Buttons:
 * left/right: move cursor
 * up/down: change digit at cursor
+* select: toggle between NTSC and PAL timing
 * start: switch to run mode (hour must be 23 or less)
 
 ### Run mode
-* Time advances by one second every 60.1 frames.
+* If using NTSC timing, time advances by one second every 60.1 frames.
+* If using PAL timing, time advances by one second every 50.008333&hellip; frames.
 * The clock moves around the screen to prevent burn-in.
 * The cursor is hidden.
 
 Buttons:
-* start: switch to adjust mode
+* start: return to adjust mode
