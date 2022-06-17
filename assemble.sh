@@ -2,4 +2,4 @@
 rm -f *.bin *.gz
 python3 ../nes-util/nes_chr_encode.py chr.png chr.bin
 asm6 clock.asm clock.nes
-gzip -k --best *.bin *.nes
+gzip -k9 *.bin *.nes

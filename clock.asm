@@ -184,8 +184,8 @@ digit_tiles_rom ; Tiles of digits. Each nybble is a tile index. Each digit is 3*
                 ; Tile slots $0, $2, $4, $a, $c, $e    : tips of segments
                 ; Tile slot  $f                        : padding (unused)
                 ;
-                ;   01 23 45 67 89 ab cd ef  <- tile slot (hexadecimal)
-                ;   -- -- -- -- -- -- -- --
+                ;   tiles in slots $0-$f
+                ;   -----------------------
                 hex 5d 3d 6c 00 0c 9d 3d a0  ; "0"
                 hex 00 00 00 00 00 1d 3d 20  ; "1"
                 hex 40 5d 6c 0c 0c 9d a0 80  ; "2"
@@ -463,10 +463,11 @@ nmi             pha                     ; push A, X, Y
                 sta oam_dma
 
                 ; print digit segments from buffer (6*3 vertical slices with 5 tiles each);
-                ; instructions executed in the loop: 6*3*20 = 360
+                ; instructions executed in the loop: 6*3*19 = 342
                 ;
                 ldy #(6*3-1)            ; index to seg_upd_addr
                 ldx #((6*3-1)*5)        ; index to segment_buffer
+                sec
                 ;
 -               lda #$23                ; set VRAM address
                 sta ppu_addr
@@ -485,8 +486,7 @@ nmi             pha                     ; push A, X, Y
                 sta ppu_data
                 ;
                 txa
-                sec
-                sbc #5
+                sbc #5                  ; carry is always set
                 tax
                 ;
                 dey
