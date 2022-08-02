@@ -22,7 +22,7 @@ scroll_h        equ $66    ; horizontal scroll value
 scroll_v        equ $67    ; vertical   scroll value
 moving_right    equ $68    ; clock moving right instead of left? (boolean)
 moving_down     equ $69    ; clock moving down  instead of up?   (boolean)
-pal_mode        equ $6a    ; use PAL mode instead of NTSC?       (boolean)
+timing          equ $6a    ; 0 = NTSC, 1 = PAL
 move_counter    equ $6b    ; counts 0-255 repeatedly (for moving the clock)
 digit_tiles     equ $0200  ; $a0 bytes (see above)
 sprite_data     equ $0300  ; OAM page ($100 bytes)
@@ -326,27 +326,29 @@ start_clock     lda digits+0            ; if hour <= 23...
                 sta sprite_data+0+0
                 sta sprite_data+4+0
                 sta sprite_data+2*4+0
-                ldx pal_mode            ; restart current second
+                ldx timing              ; restart current second
                 lda second_lengths,x
                 sta frame_counter
                 sec                     ; set flag to switch to run mode
                 ror clock_running
                 bne buttons_done        ; unconditional
 
-toggle_mode     lda pal_mode            ; toggle between NTSC/PAL
+toggle_mode     lda timing              ; toggle between NTSC/PAL
                 eor #%00000001
-                sta pal_mode
+                sta timing
 
 buttons_done    ; update sprites (cursor X position, "NTSC/PAL" tiles)
+                ;
                 ldx cursor_pos
                 lda cursor_x,x
                 sta sprite_data+0+3
-                lda pal_mode
+                lda timing
                 asl a
                 adc #$11                ; carry is always clear
                 sta sprite_data+1*4+1
                 adc #1                  ; carry is always clear
                 sta sprite_data+2*4+1
+                ;
                 jmp main_loop           ; return to common main loop
 
 cursor_x        db  4*8+4,  8*8+4       ; cursor sprite X positions
@@ -362,7 +364,7 @@ main_run_mode   ; count down; if zero, a second has elapsed
                 ; reinitialize frame counter; NES frame rates:
                 ; https://www.nesdev.org/wiki/Cycle_reference_chart
                 ;
-                ldx pal_mode            ; integer fps
+                ldx timing              ; integer fps
                 lda second_lengths,x
                 sta frame_counter
                 txa
