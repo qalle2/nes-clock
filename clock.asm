@@ -1,25 +1,30 @@
-; Clock (NES, NTSC, ASM6)
+; Clock (NES, ASM6)
 
-; --- Constants -----------------------------------------------------------------------------------
+; --- Constants ---------------------------------------------------------------
 
-; note: segment_buffer = bytes to update to PPU on next VBlank
+; Notes:
+; - segment_buffer: segment tile buffer, i.e., bytes to update to PPU on next
+;   VBlank; 6 digits * 3 columns * 5 rows = $5a bytes.
+; - digits: digits of time, from tens of hours to ones of seconds; 6 bytes.
+; - digit_tiles: tile indexes of digits; 10*16 = $a0 bytes.
+; - Boolean variables: $00-$7f = false, $80-$ff = true.
 
 ; RAM
-segment_buffer  equ $00    ; segment tile buffer (6 digits * 3 columns * 5 rows = 90 = $5a bytes)
-digits          equ $5a    ; digits of time (6 bytes, from tens of hour to ones of second)
+segment_buffer  equ $00    ; $5a bytes (see above)
+digits          equ $5a    ; 6 bytes (see above)
 frame_counter   equ $60    ; frames left in current second (0-61)
-clock_running   equ $61    ; is clock running? (MSB: 0=no, 1=yes)
-run_main_loop   equ $62    ; is main loop allowed to run? (MSB: 0=no, 1=yes)
+clock_running   equ $61    ; is clock running? (boolean)
+run_main_loop   equ $62    ; is main loop allowed to run? (boolean)
 pad_status      equ $63    ; joypad status
 prev_pad_status equ $64    ; previous joypad status
 cursor_pos      equ $65    ; cursor position (0-5)
 scroll_h        equ $66    ; horizontal scroll value
 scroll_v        equ $67    ; vertical   scroll value
-moving_right    equ $68    ; clock moving right instead of left? (MSB: 0=no, 1=yes)
-moving_down     equ $69    ; clock moving down  instead of up?   (MSB: 0=no, 1=yes)
-pal_mode        equ $6a    ; use PAL mode instead of NTSC?       (0=no, 1=yes)
-move_counter    equ $6b    ; counts 0-255 repeatedly (used for moving the clock)
-digit_tiles     equ $0200  ; tiles of digits (10*16 = $a0 bytes; byte = tile index)
+moving_right    equ $68    ; clock moving right instead of left? (boolean)
+moving_down     equ $69    ; clock moving down  instead of up?   (boolean)
+pal_mode        equ $6a    ; use PAL mode instead of NTSC?       (boolean)
+move_counter    equ $6b    ; counts 0-255 repeatedly (for moving the clock)
+digit_tiles     equ $0200  ; $a0 bytes (see above)
 sprite_data     equ $0300  ; OAM page ($100 bytes)
 
 ; memory-mapped registers
@@ -36,33 +41,25 @@ snd_chn         equ $4015
 joypad1         equ $4016
 joypad2         equ $4017
 
-; misc
-def_scroll_h    equ  3*8+4  ; default (centered) horizontal scroll value
-def_scroll_v    equ 12*8+4  ; default (centered) vertical   scroll value
-move_spd        equ 5       ; movement speed in run mode (0 = fastest, 8 = slowest)
+; default (centered) horizontal/vertical scroll value
+def_scroll_h    equ  3*8+4
+def_scroll_v    equ 12*8+4
 
-; colors
-color_bg        equ $0f     ; background       (black)
-color_dim       equ $18     ; segment - dim    (dark yellow)
-color_bright    equ $28     ; segment - bright (yellow)
-color_unused    equ $25     ; unused           (pink)
-
-; --- iNES header ---------------------------------------------------------------------------------
+; --- iNES header -------------------------------------------------------------
 
                 ; see https://wiki.nesdev.org/w/index.php/INES
-                ;
                 base $0000
                 db "NES", $1a            ; file id
                 db 1, 1                  ; 16 KiB PRG ROM, 8 KiB CHR ROM
-                db %00000001, %00000000  ; NROM mapper, vertical name table mirroring
+                db %00000001, %00000000  ; NROM mapper, vertical NT mirroring
                 pad $0010, $00           ; unused
 
-; --- Initialization ------------------------------------------------------------------------------
+; --- Initialization ----------------------------------------------------------
 
                 base $c000              ; last 16 KiB of CPU address space
 
-reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/Init_code
-                ;
+reset           ; initialize the NES
+                ; see https://wiki.nesdev.org/w/index.php/Init_code
                 sei                     ; ignore IRQs
                 cld                     ; disable decimal mode
                 ldx #%01000000
@@ -77,9 +74,9 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
 
                 jsr wait_vbl_start      ; wait until next VBlank starts
 
-                ldy #$00                ; fill zero page with $00 and sprite page with $ff
-                lda #$ff                ; note: 6502 has no absolute indexed STX/STY
-                ldx #0
+                ldy #$00                ; fill zero page with $00 and sprite
+                lda #$ff                ; page with $ff; note: there's no
+                ldx #0                  ; absolute indexed STX/STY
 -               sty $00,x
                 sta sprite_data,x
                 inx
@@ -96,8 +93,10 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 lda #def_scroll_v
                 sta scroll_v
 
-                ldx #0                  ; extract digit_tiles_rom array to RAM
-                ldy #0                  ; X/Y = source/target index
+                ; extract digit_tiles_rom array to RAM
+                ;
+                ldx #0                  ; source index
+                ldy #0                  ; target index
                 ;
 -               lda digit_tiles_rom,x   ; high nybble to byte
                 pha
@@ -119,7 +118,8 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
 
                 jsr wait_vbl_start      ; wait until next VBlank starts
 
-                ldy #$3f                ; set up palette (while still in VBlank)
+                ; init palette (while still in VBlank)
+                ldy #$3f
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
                 ;
                 ldy #8                  ; copy same colors to all subpalettes
@@ -132,7 +132,7 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 dey
                 bne --
 
-                ; clear name & attribute table 0 & 1 (both because we scroll the screen)
+                ; clear name & attribute tables 0 & 1
                 ;
                 ldy #$20                ; VRAM address $2000
                 jsr set_ppu_addr_pg     ; 0 -> A; Y*$100 + A -> address
@@ -145,8 +145,10 @@ reset           ; initialize the NES; see https://wiki.nesdev.org/w/index.php/In
                 dey
                 bne -
 
-                ldy #$23                ; print colons between digits
-                ldx #(4-1)              ; X = source index, Y = PPU address high
+                ; print colons between digits
+                ;
+                ldy #$23
+                ldx #(4-1)              ; X = source index, Y = PPU addr high
                 ;
 -               lda colon_addr,x
                 jsr set_ppu_addr        ; Y*$100 + A -> address
@@ -168,21 +170,21 @@ wait_vbl_start  bit ppu_status          ; wait until next VBlank starts
                 rts
 
 init_spr_data   ; initial sprite data (Y, tile, attributes, X)
-                ;
                 db 18*8+4-1, $10, %00000000, 4*8+4  ; #0: cursor
                 db 11*8-1,   $11, %00000000, 15*8   ; #1: "NTSC" - left half
                 db 11*8-1,   $12, %00000000, 16*8   ; #2: "NTSC" - right half
 
-digit_tiles_rom ; Tiles of digits. Each nybble is a tile index. Each digit is 3*5 tile slots:
-                ;     $0 $5 $a
-                ;     $1 $6 $b
-                ;     $2 $7 $c
-                ;     $3 $8 $d
-                ;     $4 $9 $e
-                ; Tile slots $6, $8                    : always empty
-                ; Tile slots $1, $3, $5, $7, $9, $b, $d: middle parts of segments
-                ; Tile slots $0, $2, $4, $a, $c, $e    : tips of segments
-                ; Tile slot  $f                        : padding (unused)
+digit_tiles_rom ; Tiles of digits. Each nybble is a tile index.
+                ; Each digit is 3*5 tile slots:
+                ;     $0  $5  $a
+                ;     $1  $6  $b
+                ;     $2  $7  $c
+                ;     $3  $8  $d
+                ;     $4  $9  $e
+                ; Slots $6, $8                    : always empty
+                ; Slots $1, $3, $5, $7, $9, $b, $d: middle parts of segments
+                ; Slots $0, $2, $4, $a, $c, $e    : tips of segments
+                ; Slot  $f                        : padding (unused)
                 ;
                 ;   tiles in slots $0-$f
                 ;   -----------------------
@@ -197,22 +199,30 @@ digit_tiles_rom ; Tiles of digits. Each nybble is a tile index. Each digit is 3*
                 hex 5d 7d 6c 0c 0c 9d bd a0  ; "8"
                 hex 5d 60 4c 0c 0c 9d bd a0  ; "9"
 
-palette         db color_bg, color_dim, color_bright, color_unused  ; copied to all subpalettes
+palette         ; copied to all subpalettes
+                db $0f                  ; background     (black)
+                db $18                  ; dim    segment (dark yellow)
+                db $28                  ; bright segment (yellow)
+                db $25                  ; unused         (pink)
 
-colon_addr      hex 4e 57 8e 97         ; low bytes of PPU addresses of colons
+colon_addr      ; low bytes of PPU addresses of colons
+                hex 4e 57 8e 97
 
-; --- Main loop - common --------------------------------------------------------------------------
+; --- Main loop - common ------------------------------------------------------
 
 main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 bpl main_loop
-                ;
+
                 lsr run_main_loop       ; clear flag
 
                 lda pad_status          ; store previous joypad status
                 sta prev_pad_status
-                ;
-                lda #1                  ; read joypad
-                sta joypad1             ; (bits: A, B, select, start, up, down, left, right)
+
+                ; read joypad
+                ; bits: A, B, select, start, up, down, left, right
+                ; TODO: replace with routine from bf.asm
+                lda #1
+                sta joypad1
                 sta pad_status
                 lsr a
                 sta joypad1
@@ -228,15 +238,17 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 ;
 --              tya                     ; push digits index
                 pha
-                lda digits,y            ; digit_tiles index -> Y
-                asl a                   ; (6502 has no LDA/STA zp,y so we waste 1 byte)
+                lda digits,y            ; digit_tiles index -> Y (there's
+                asl a                   ; no LDA/STA zp,y so 1 byte is wasted)
                 asl a
                 asl a
                 asl a
                 tay
                 ;
--               lda digit_tiles,y       ; inner loop: copy first 3*5 bytes (tiles) from
-                sta segment_buffer,x    ; digit_tiles to segment_buffer
+                ; inner loop: copy first 3*5 bytes (tiles) from digit_tiles
+                ; to segment_buffer
+-               lda digit_tiles,y
+                sta segment_buffer,x
                 iny
                 inx
                 tya
@@ -254,26 +266,27 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
                 bpl main_adj_mode
                 jmp main_run_mode
 
-; --- Main loop - adjust mode ---------------------------------------------------------------------
+; --- Main loop - adjust mode -------------------------------------------------
 
-main_adj_mode   lda prev_pad_status     ; ignore buttons if something was pressed on last frame
+main_adj_mode   ; ignore buttons if something was pressed on last frame
+                lda prev_pad_status
                 bne buttons_done
 
                 ldx cursor_pos          ; react to buttons
                 lda pad_status
                 ;
                 lsr a
-                bcs cursor_right        ; d-pad right
+                bcs cursor_right        ; right
                 lsr a
-                bcs cursor_left         ; d-pad left
+                bcs cursor_left         ; left
                 lsr a
-                bcs dec_digit           ; d-pad down
+                bcs dec_digit           ; down
                 lsr a
-                bcs inc_digit           ; d-pad up
+                bcs inc_digit           ; up
                 lsr a
-                bcs start_clock         ; start button
+                bcs start_clock         ; start
                 lsr a
-                bcs toggle_mode         ; select button
+                bcs toggle_mode         ; select
                 ;
                 bcc buttons_done        ; unconditional
 
@@ -324,7 +337,8 @@ toggle_mode     lda pal_mode            ; toggle between NTSC/PAL
                 eor #%00000001
                 sta pal_mode
 
-buttons_done    ldx cursor_pos          ; update sprites (cursor X position, "NTSC/PAL" tiles)
+buttons_done    ; update sprites (cursor X position, "NTSC/PAL" tiles)
+                ldx cursor_pos
                 lda cursor_x,x
                 sta sprite_data+0+3
                 lda pal_mode
@@ -333,20 +347,20 @@ buttons_done    ldx cursor_pos          ; update sprites (cursor X position, "NT
                 sta sprite_data+1*4+1
                 adc #1                  ; carry is always clear
                 sta sprite_data+2*4+1
-
                 jmp main_loop           ; return to common main loop
 
 cursor_x        db  4*8+4,  8*8+4       ; cursor sprite X positions
                 db 13*8+4, 17*8+4
                 db 22*8+4, 26*8+4
 
-; --- Main loop - run mode ------------------------------------------------------------------------
+; --- Main loop - run mode ----------------------------------------------------
 
-main_run_mode   dec frame_counter       ; count down; if zero, a second has elapsed
+main_run_mode   ; count down; if zero, a second has elapsed
+                dec frame_counter
                 bne time_math_done
 
-                ; reinitialize frame counter
-                ; NES frame rates: https://www.nesdev.org/wiki/Cycle_reference_chart
+                ; reinitialize frame counter; NES frame rates:
+                ; https://www.nesdev.org/wiki/Cycle_reference_chart
                 ;
                 ldx pal_mode            ; integer fps
                 lda second_lengths,x
@@ -354,11 +368,13 @@ main_run_mode   dec frame_counter       ; count down; if zero, a second has elap
                 txa
                 bne +
                 ;
-                lda digits+5            ; NTSC: +1 frame every 10 s, or +1/10 fps on average
+                ; NTSC: +1 frame every 10 s, or +1/10 fps on average
+                lda digits+5
                 beq extra_frame
                 bne cntr_init_done      ; unconditional
                 ;
-+               lda digits+5            ; PAL: +1 frame every 2 min, or +1/120 fps on average
++               ; PAL: +1 frame every 2 min, or +1/120 fps on average
+                lda digits+5
                 ora digits+4
                 bne cntr_init_done
                 lda digits+3
@@ -369,8 +385,8 @@ extra_frame     inc frame_counter
 
 cntr_init_done  ldx #(6-1)              ; increment digits (X = which digit)
                 ;
--               cpx #1                  ; special logic: reset ones of hour if hour = 23
-                bne +
+-               cpx #1                  ; special logic: reset ones of hour
+                bne +                   ; if hour = 23
                 lda digits+0
                 cmp #2
                 bne +
@@ -378,9 +394,9 @@ cntr_init_done  ldx #(6-1)              ; increment digits (X = which digit)
                 cmp #3
                 beq ++
                 ;
-+               inc digits,x            ; the usual logic: increment digit; if too large, zero it
-                lda max_digits,x        ; and continue to next digit, otherwise exit
-                cmp digits,x
++               inc digits,x            ; the usual logic: increment digit;
+                lda max_digits,x        ; if too large, zero it and continue
+                cmp digits,x            ; to next digit, otherwise exit
                 bcs time_math_done
                 ;
 ++              lda #0
@@ -388,13 +404,16 @@ cntr_init_done  ldx #(6-1)              ; increment digits (X = which digit)
                 dex
                 bpl -
 
-time_math_done  lda prev_pad_status     ; if nothing pressed on previous frame and start pressed
-                bne start_chk_done      ; on this frame...
+time_math_done  ; if nothing pressed on previous frame and start pressed
+                ; on this frame...
+                lda prev_pad_status
+                bne start_chk_done
                 lda pad_status
                 and #%00010000
                 beq start_chk_done
                 ;
-                ldx #(2*4)              ; show sprites (restore original Y values)
+                ; show sprites (restore original Y values)
+                ldx #(2*4)
 -               lda init_spr_data+0,x
                 sta sprite_data+0,x
                 dex
@@ -402,15 +421,19 @@ time_math_done  lda prev_pad_status     ; if nothing pressed on previous frame a
                 dex
                 dex
                 bpl -
+                ;
                 lda #def_scroll_h       ; restore default scroll values
                 sta scroll_h
                 lda #def_scroll_v
                 sta scroll_v
+                ;
                 lsr clock_running       ; clear flag to switch to adjust mode
 
-start_chk_done  lda move_counter        ; move clock by 1 pixel every 2**move_spd frames
-                and #((1<<move_spd)-1)  ; (clock is at bottom right corner of NT0)
-                bne vert_move_done
+start_chk_done  ; move clock by 1 pixel every 2**5 frames
+                ; (clock is at bottom right corner of NT0)
+                lda move_counter
+                and #%00011111
+                bne clock_move_done
 
                 bit moving_right        ; move clock horizontally
                 bmi +
@@ -418,36 +441,36 @@ start_chk_done  lda move_counter        ; move clock by 1 pixel every 2**move_sp
                 inc scroll_h            ; move clock left
                 lda scroll_h
                 cmp #(6*8)
-                bne horiz_move_done
+                bne ++
                 ror moving_right        ; set flag (carry is always set)
-                bne horiz_move_done     ; unconditional
+                bne ++                  ; unconditional
                 ;
 +               dec scroll_h            ; move clock right
                 lda scroll_h
                 cmp #8
-                bne horiz_move_done
+                bne ++
                 lsr moving_right        ; clear flag
 
-horiz_move_done bit moving_down         ; move clock vertically
+++              bit moving_down         ; move clock vertically
                 bmi +
                 ;
                 inc scroll_v            ; move clock up
                 lda scroll_v
                 cmp #(23*8)
-                bne vert_move_done
+                bne clock_move_done
                 ror moving_down         ; set flag (carry is always set)
-                bne vert_move_done      ; unconditional
+                bne clock_move_done     ; unconditional
                 ;
 +               dec scroll_v            ; move clock down
                 lda scroll_v
                 cmp #(2*8)
-                bne vert_move_done
+                bne clock_move_done
                 lsr moving_down         ; clear flag
 
-vert_move_done  inc move_counter        ; increment counter
+clock_move_done inc move_counter        ; increment counter
                 jmp main_loop           ; return to common main loop
 
-; --- Interrupt routines --------------------------------------------------------------------------
+; --- Interrupt routines ------------------------------------------------------
 
 nmi             pha                     ; push A, X, Y
                 txa
@@ -462,7 +485,8 @@ nmi             pha                     ; push A, X, Y
                 lda #>sprite_data
                 sta oam_dma
 
-                ; print digit segments from buffer (6*3 vertical slices with 5 tiles each);
+                ; print digit segments from buffer
+                ; (6*3 vertical slices with 5 tiles each);
                 ; instructions executed in the loop: 6*3*19 = 342
                 ;
                 ldy #(6*3-1)            ; index to seg_upd_addr
@@ -505,9 +529,8 @@ nmi             pha                     ; push A, X, Y
 
 irq             rti                     ; IRQ unused
 
-seg_upd_addr    ; low bytes of VRAM addresses of first bytes of vertical 5-tile segment slices
-                ; (bottom right corner of NT0)
-                ;
+seg_upd_addr    ; low bytes of VRAM addresses of first bytes of vertical 5-tile
+                ; segment slices (bottom right corner of NT0)
                 db 1*32+ 7, 1*32+ 8, 1*32+ 9  ; tens of hour
                 db 1*32+11, 1*32+12, 1*32+13  ; ones of hour
                 db 1*32+16, 1*32+17, 1*32+18  ; tens of minute
@@ -515,9 +538,9 @@ seg_upd_addr    ; low bytes of VRAM addresses of first bytes of vertical 5-tile 
                 db 1*32+25, 1*32+26, 1*32+27  ; tens of second
                 db 1*32+29, 1*32+30, 1*32+31  ; ones of second
 
-; --- Subs & arrays used in many places -----------------------------------------------------------
+; --- Subs & arrays used in many places ---------------------------------------
 
-set_ppu_addr_pg lda #$00                ; clear A and set PPU address page from Y
+set_ppu_addr_pg lda #$00                ; clear A, set PPU address page from Y
 set_ppu_addr    sty ppu_addr            ; set PPU address from Y and A
                 sta ppu_addr
                 rts
@@ -526,7 +549,7 @@ set_ppu_regs    lda scroll_h            ; set scroll value
                 sta ppu_scroll
                 lda scroll_v
                 sta ppu_scroll
-                lda #%10000100          ; enable NMI; address autoincrement 32 bytes
+                lda #%10000100          ; enable NMI; addr autoincr 32 bytes
                 sta ppu_ctrl
                 lda #%00011110          ; show background and sprites
                 sta ppu_mask
@@ -534,14 +557,14 @@ set_ppu_regs    lda scroll_h            ; set scroll value
 
 max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of individual digits
 
-second_lengths  db 60, 50               ; frames/second in NTSC/PAL mode
+second_lengths  db 60, 50               ; whole frames/second in NTSC/PAL mode
 
-; --- Interrupt vectors ---------------------------------------------------------------------------
+; --- Interrupt vectors -------------------------------------------------------
 
                 pad $fffa, $ff
                 dw nmi, reset, irq      ; IRQ unused
 
-; --- CHR ROM -------------------------------------------------------------------------------------
+; --- CHR ROM -----------------------------------------------------------------
 
                 base $0000
                 incbin "chr.bin"
