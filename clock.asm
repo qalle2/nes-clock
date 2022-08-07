@@ -6,7 +6,7 @@
 ; - segment_buffer: segment tile buffer, i.e., bytes to update to PPU on next
 ;   VBlank; 6 digits * 3 columns * 5 rows = $5a bytes.
 ; - digits: digits of time, from tens of hours to ones of seconds; 6 bytes.
-; - digit_tiles: tile indexes of digits; 10*16 = $a0 bytes.
+; - digit_tiles: tile indexes of digits 0-9; 10*16 = $a0 bytes.
 ; - Boolean variables: $00-$7f = false, $80-$ff = true.
 
 ; RAM
@@ -90,7 +90,6 @@ wait_vbl_start  bit ppu_status          ; wait until next VBlank starts
 init_ram        ; initialize main RAM
 
                 ; clear zero page, hide all sprites
-                ; (there's no absolute indexed STX/STY)
                 ldy #$00
                 lda #$ff
                 ldx #0
@@ -117,10 +116,10 @@ init_ram        ; initialize main RAM
                 ; for i in range(10*8):
                 ;     digit_tiles[i*2]   = digit_tiles_rom[i] >> 4
                 ;     digit_tiles[i*2+1] = digit_tiles_rom[i] & 0b00001111
-                ;
+
                 ldx #0                  ; source index
                 ldy #0                  ; target index
-                ;
+
 -               lda digit_tiles_rom,x   ; high nybble to byte
                 pha
                 lsr a
@@ -129,12 +128,12 @@ init_ram        ; initialize main RAM
                 lsr a
                 sta digit_tiles,y
                 iny
-                ;
+
                 pla                     ; low nybble to byte
                 and #%00001111
                 sta digit_tiles,y
                 iny
-                ;
+
                 inx
                 cpx #(10*8)
                 bne -
@@ -174,11 +173,11 @@ digit_tiles_rom ; Tiles of digits. Each nybble is a tile index.
 init_ppu_mem    ; initialize PPU memory
 
                 ; set palette (while still in VBlank)
-                ;
+
                 ldy #$3f
                 lda #$00
                 jsr set_ppu_addr        ; Y*$100+A -> address
-                ;
+
                 ldy #8                  ; copy same colors to all subpalettes
 --              ldx #0
 -               lda palette,x
@@ -190,12 +189,12 @@ init_ppu_mem    ; initialize PPU memory
                 bne --
 
                 ; clear name & attribute table 0 & 1
-                ;
+
                 ldy #$20
                 lda #$00
                 jsr set_ppu_addr        ; Y*$100+A -> address
-                ;
-                ldy #8                  ; write $800 * $00
+
+                ldy #8
                 tax
 -               sta ppu_data
                 inx
@@ -204,10 +203,10 @@ init_ppu_mem    ; initialize PPU memory
                 bne -
 
                 ; print colons between digits
-                ;
+
                 ldy #$23                ; PPU address high
                 ldx #(4-1)              ; source index
-                ;
+
 -               lda colon_addr,x
                 jsr set_ppu_addr        ; Y*$100+A -> address
                 lda #$0e
@@ -230,7 +229,8 @@ palette         ; copied to all subpalettes
                 db $25                  ; unused         (pink)
 
 colon_addr      ; low bytes of PPU addresses of colons
-                hex 4e 57 8e 97
+                db 2*32+14, 2*32+23
+                db 4*32+14, 4*32+23
 
 ; --- Main loop - common ------------------------------------------------------
 
@@ -241,12 +241,13 @@ main_loop       bit run_main_loop       ; wait until NMI routine has set flag
 
                 lda pad_status          ; store previous joypad status
                 sta prev_pad_status
-
                 jsr read_joypad         ; read joypad
-                jsr write_segbuf        ; write segment tile buffer
 
-                bit clock_running       ; run mode-specific sub and restart
-                bmi +                   ; main loop
+                jsr update_seg_buf      ; update segment tile buffer
+
+                ; run mode-specific sub and restart main loop
+                bit clock_running
+                bmi +
                 jsr main_adj_mode
                 jmp main_loop
 +               jsr main_run_mode
@@ -269,7 +270,7 @@ read_joypad     ; read 1st joypad or Famicom expansion port controller
                 bcc -
                 rts
 
-write_segbuf    ; write segment tile buffer
+update_seg_buf  ; update segment tile buffer
                 ; Python equivalent (d = digit index, t = tile index):
                 ; for d in range(6):
                 ;     for t in range(15):
@@ -325,75 +326,80 @@ main_adj_mode   ; exit if something was pressed on last frame
                 bne cursor_right
 +               rts
 
-toggle_timing   lda timing              ; toggle between NTSC and PAL timing
+toggle_timing   ; toggle between NTSC and PAL timing
+
+                lda timing
                 eor #%00000001
                 sta timing
-                jmp update_sprites
 
-try_to_start    ; start clock if hour <= 23
-                lda digits+0
-                cmp #2
-                bcc start_clock         ; ends with RTS
-                lda digits+1
-                cmp #4
-                bcc start_clock         ; ends with RTS
+                asl a                   ; update tile of left sprite
+                clc
+                adc #$11
+                sta sprite_data+1*4+1
+
+                clc                     ; update tile of right sprite
+                adc #1
+                sta sprite_data+2*4+1
                 rts
 
-decr_digit      ldx cursor_pos          ; decrement digit at cursor
-                dec digits,x
-                bpl ++
-                lda max_digits,x
-                bpl +                   ; unconditional
-                ;
-incr_digit      ldx cursor_pos          ; increment digit at cursor
+try_to_start    ; try to start the clock
+
+                lda digits+0            ; proceed if hour <= 23
+                cmp #2
+                bcc +
+                lda digits+1
+                cmp #4
+                bcs ++
+
++               lda #$ff                ; hide sprites (cursor, "NTSC"/"PAL")
+                sta sprite_data+0*4+0
+                sta sprite_data+1*4+0
+                sta sprite_data+2*4+0
+
+                jsr init_frame_cntr     ; restart current second
+
+                sec                     ; set flag
+                ror clock_running
+++              rts
+
+incr_digit      ; increment digit at cursor
+                ldx cursor_pos
                 inc digits,x
                 lda max_digits,x
                 cmp digits,x
                 bcs ++
                 lda #0
+                jmp +
+
+decr_digit      ; decrement digit at cursor
+                ldx cursor_pos
+                dec digits,x
+                bpl ++
+                lda max_digits,x
 +               sta digits,x
 ++              rts
 
-cursor_left     dec cursor_pos          ; move cursor left
-                bpl update_sprites
+cursor_left     ; move cursor left
+                ldx cursor_pos
+                dex
+                bpl +
                 ldx #(6-1)
-                bpl +                   ; unconditional
-                ;
-cursor_right    ldx cursor_pos          ; move cursor right
+                jmp +
+
+cursor_right    ; move cursor right
+                ldx cursor_pos
                 inx
                 cpx #6
                 bne +
                 ldx #0
 +               stx cursor_pos
-                jmp update_sprites
-
-update_sprites  ; update sprites and return to main loop
-                ldx cursor_pos          ; cursor X position
-                lda cursor_x,x
-                sta sprite_data+0+3
-                lda timing              ; "NTSC/PAL" tiles
-                asl a
-                adc #$11                ; carry is always clear
-                sta sprite_data+1*4+1
-                adc #1                  ; carry is always clear
-                sta sprite_data+2*4+1
+                lda cursor_x,x          ; update sprite X position
+                sta sprite_data+0*4+3
                 rts
 
 cursor_x        db  4*8+4,  8*8+4       ; cursor sprite X positions
                 db 13*8+4, 17*8+4
                 db 22*8+4, 26*8+4
-
-start_clock     ; start clock and return to main loop
-                lda #$ff                ; hide sprites (cursor, "NTSC"/"PAL")
-                sta sprite_data+0+0
-                sta sprite_data+4+0
-                sta sprite_data+2*4+0
-                ldx timing              ; restart current second
-                lda second_lengths,x
-                sta frame_counter
-                sec                     ; switch to run mode
-                ror clock_running
-                rts
 
 ; --- Main loop - run mode ----------------------------------------------------
 
@@ -414,13 +420,13 @@ main_run_mode   ; count down; if zero, a second has elapsed
 +               ; move clock every 2**5 frames
                 ; (clock is at bottom right corner of NT0)
                 lda move_counter
-                and #%00011111
+                and #((1<<5)-1)
                 bne +
                 jsr move_clock_horz
                 jsr move_clock_vert
 
 +               inc move_counter        ; increment counter
-                rts                     ; return to main loop
+                rts
 
 init_frame_cntr ; reinitialize frame counter; NES frame rates:
                 ; https://www.nesdev.org/wiki/Cycle_reference_chart
@@ -447,6 +453,8 @@ init_frame_cntr ; reinitialize frame counter; NES frame rates:
 ++              inc frame_counter       ; add extra frame
 +++             rts
 
+second_lengths  db 60, 50               ; whole frames/second in NTSC/PAL mode
+
 incr_digits     ; increment digits
 
                 ldx #(6-1)              ; which digit
@@ -459,18 +467,20 @@ incr_digits     ; increment digits
                 lda digits+1
                 cmp #3
                 beq ++
-                ;
+
 +               inc digits,x            ; increment digit; exit if not too big
                 lda max_digits,x
                 cmp digits,x
                 bcs +++
-                ;
+
 ++              lda #0                  ; reset digit and continue to next one
                 sta digits,x
                 dex
                 bpl -
 
 +++             rts
+
+max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of individual digits
 
 stop_clock      ; return to adjust mode
 
@@ -500,7 +510,8 @@ move_clock_horz ; scroll screen horizontally by 1 pixel
                 lda scroll_h
                 cmp #(6*8)
                 bne +
-                ror moving_right        ; set flag (carry is always set)
+                sec                     ; set flag
+                ror moving_right
 +               rts
 
 ++              dec scroll_h            ; move right
@@ -519,7 +530,8 @@ move_clock_vert ; scroll screen vertically by 1 pixel
                 lda scroll_v
                 cmp #(23*8)
                 bne +
-                ror moving_down         ; set flag (carry is always set)
+                sec                     ; set flag
+                ror moving_down
 +               rts
 
 ++              dec scroll_v            ; move down
@@ -546,36 +558,7 @@ nmi             pha                     ; push A, X, Y
                 lda #>sprite_data
                 sta oam_dma
 
-                ; print digit segments from buffer
-                ; (6*3 vertical slices with 5 tiles each);
-                ; instructions executed in the loop: 6*3*19 = 342
-                ;
-                ldy #(6*3-1)            ; index to seg_upd_addr
-                ldx #((6*3-1)*5)        ; index to segment_buffer
-                sec
-                ;
--               lda #$23                ; set VRAM address
-                sta ppu_addr
-                lda seg_upd_addr,y
-                sta ppu_addr
-                ;
-                lda segment_buffer+0,x
-                sta ppu_data
-                lda segment_buffer+1,x
-                sta ppu_data
-                lda segment_buffer+2,x
-                sta ppu_data
-                lda segment_buffer+3,x
-                sta ppu_data
-                lda segment_buffer+4,x
-                sta ppu_data
-                ;
-                txa
-                sbc #5                  ; carry is always set
-                tax
-                ;
-                dey
-                bpl -
+                jsr print_seg_buf       ; print digit segments
 
                 sec                     ; set flag to let main loop run once
                 ror run_main_loop
@@ -590,16 +573,47 @@ nmi             pha                     ; push A, X, Y
 
 irq             rti                     ; IRQ unused
 
-seg_upd_addr    ; low bytes of VRAM addresses of first bytes of vertical 5-tile
-                ; segment slices (bottom right corner of NT0)
-                db 1*32+ 7, 1*32+ 8, 1*32+ 9  ; tens of hour
-                db 1*32+11, 1*32+12, 1*32+13  ; ones of hour
-                db 1*32+16, 1*32+17, 1*32+18  ; tens of minute
-                db 1*32+20, 1*32+21, 1*32+22  ; ones of minute
-                db 1*32+25, 1*32+26, 1*32+27  ; tens of second
-                db 1*32+29, 1*32+30, 1*32+31  ; ones of second
+print_seg_buf   ; print digit segments from segment tile buffer
+                ; (6*3 vertical slices with 5 tiles each);
+                ; instructions executed in the loop: 6*3*20 = 360
 
-; --- Subs & arrays used in many places ---------------------------------------
+                ldy #(6*3-1)            ; which vertical slice
+
+-               lda #$23                ; set VRAM address
+                sta ppu_addr
+                lda seg_vram_adrses,y
+                sta ppu_addr
+
+                ldx seg_buf_offsets,y
+
+                lda segment_buffer+0,x
+                sta ppu_data
+                lda segment_buffer+1,x
+                sta ppu_data
+                lda segment_buffer+2,x
+                sta ppu_data
+                lda segment_buffer+3,x
+                sta ppu_data
+                lda segment_buffer+4,x
+                sta ppu_data
+
+                dey
+                bpl -
+                rts
+
+seg_vram_adrses ; low bytes of VRAM addresses of first tiles of vertical slices
+                ; (bottom right corner of NT0)
+                db 32+ 7, 32+ 8, 32+ 9  ; tens of hour
+                db 32+11, 32+12, 32+13  ; ones of hour
+                db 32+16, 32+17, 32+18  ; tens of minute
+                db 32+20, 32+21, 32+22  ; ones of minute
+                db 32+25, 32+26, 32+27  ; tens of second
+                db 32+29, 32+30, 32+31  ; ones of second
+
+seg_buf_offsets ; offset to start of each vertical slice in segment_buffer
+                db  0*5,  1*5,  2*5,  3*5,  4*5,  5*5
+                db  6*5,  7*5,  8*5,  9*5, 10*5, 11*5
+                db 12*5, 13*5, 14*5, 15*5, 16*5, 17*5
 
 set_ppu_regs    lda scroll_h            ; set scroll value
                 sta ppu_scroll
@@ -610,10 +624,6 @@ set_ppu_regs    lda scroll_h            ; set scroll value
                 lda #%00011110          ; show background and sprites
                 sta ppu_mask
                 rts
-
-max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of individual digits
-
-second_lengths  db 60, 50               ; whole frames/second in NTSC/PAL mode
 
 ; --- Interrupt vectors -------------------------------------------------------
 
