@@ -1,4 +1,4 @@
-# nes-clock
+# Qalle's Clock
 A 24-hour 7-segment clock for the [NES](https://en.wikipedia.org/wiki/Nintendo_Entertainment_System).
 
 ![screenshot](snap.png)
