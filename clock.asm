@@ -4,9 +4,9 @@
 
 ; Notes:
 ; - segment_buffer: segment tile buffer, i.e., bytes to update to PPU on next
-;   VBlank; 6 digits * 3 columns * 5 rows = $5a bytes.
+;   VBlank; 6 digits * 3 columns * 5 rows = 90 ($5a) bytes.
 ; - digits: digits of time, from tens of hours to ones of seconds; 6 bytes.
-; - digit_tiles: tile indexes of digits 0-9; 10*16 = $a0 bytes.
+; - digit_tiles: tile indexes of digits 0-9; 10*16 = 160 ($a0) bytes.
 ; - Boolean variables: $00-$7f = false, $80-$ff = true.
 
 ; RAM
@@ -57,6 +57,7 @@ def_scroll_v    equ 12*8+4
 ; --- Initialization ----------------------------------------------------------
 
                 base $c000              ; last 16 KiB of CPU address space
+                pad $e000, $ff          ; only use last 8 KiB
 
 reset           ; initialize the NES
                 ; see https://wiki.nesdev.org/w/index.php/Init_code
@@ -99,11 +100,12 @@ init_ram        ; initialize main RAM
                 bne -
 
                 ; copy initial sprite data
-                ldx #(3*4-1)
+                ldx #0
 -               lda init_spr_data,x
                 sta sprite_data,x
-                dex
-                bpl -
+                inx
+                cpx #(spr_data_end-init_spr_data)
+                bne -
 
                 ; set nonzero variables
                 lda #def_scroll_h
@@ -141,9 +143,78 @@ init_ram        ; initialize main RAM
                 rts
 
 init_spr_data   ; initial sprite data (Y, tile, attributes, X)
-                db 18*8+4-1, $10, %00000000, 4*8+4  ; #0: cursor
-                db 11*8-1,   $11, %00000000, 15*8   ; #1: "NTSC" - left half
-                db 11*8-1,   $12, %00000000, 16*8   ; #2: "NTSC" - right half
+                ; #0: cursor
+                db 18*8+4-1, $10, %00000000, 4*8+4  ; cursor
+                ; #1-#4: timing
+                db 11*8-1, $20, %00000000, 14*8   ; "N"
+                db 11*8-1, $26, %00000000, 15*8   ; "T"
+                db 11*8-1, $25, %00000000, 16*8   ; "S"
+                db 11*8-1, $15, %00000000, 17*8   ; "C"
+                ; #5-?: help
+                db 3*8-1, $13, %00000000,  8*8   ; "A"
+                db 3*8-1, $24, %00000000,  9*8   ; "R"
+                db 3*8-1, $24, %00000000, 10*8   ; "R"
+                db 3*8-1, $21, %00000000, 11*8   ; "O"
+                db 3*8-1, $29, %00000000, 12*8   ; "W"
+                db 3*8-1, $25, %00000000, 13*8   ; "S"
+                db 3*8-1, $12, %00000000, 14*8   ; ":"
+                ;
+                db 4*8-1, $25, %00000000, 15*8   ; "S"
+                db 4*8-1, $17, %00000000, 16*8   ; "E"
+                db 4*8-1, $26, %00000000, 17*8   ; "T"
+                db 4*8-1, $26, %00000000, 19*8   ; "T"
+                db 4*8-1, $1b, %00000000, 20*8   ; "I"
+                db 4*8-1, $1f, %00000000, 21*8   ; "M"
+                db 4*8-1, $17, %00000000, 22*8   ; "E"
+                ;
+                db 6*8-1, $25, %00000000,  8*8   ; "S"
+                db 6*8-1, $17, %00000000,  9*8   ; "E"
+                db 6*8-1, $1e, %00000000, 10*8   ; "L"
+                db 6*8-1, $17, %00000000, 11*8   ; "E"
+                db 6*8-1, $15, %00000000, 12*8   ; "C"
+                db 6*8-1, $26, %00000000, 13*8   ; "T"
+                db 6*8-1, $12, %00000000, 14*8   ; ":"
+                ;
+                db 7*8-1, $26, %00000000, 15*8   ; "T"
+                db 7*8-1, $21, %00000000, 16*8   ; "O"
+                db 7*8-1, $19, %00000000, 17*8   ; "G"
+                db 7*8-1, $19, %00000000, 18*8   ; "G"
+                db 7*8-1, $1e, %00000000, 19*8   ; "L"
+                db 7*8-1, $17, %00000000, 20*8   ; "E"
+                ;
+                db 8*8-1, $26, %00000000, 15*8   ; "T"
+                db 8*8-1, $1b, %00000000, 16*8   ; "I"
+                db 8*8-1, $1f, %00000000, 17*8   ; "M"
+                db 8*8-1, $1b, %00000000, 18*8   ; "I"
+                db 8*8-1, $20, %00000000, 19*8   ; "N"
+                db 8*8-1, $19, %00000000, 20*8   ; "G"
+                ;
+                db 21*8-1, $25, %00000000,  8*8   ; "S"
+                db 21*8-1, $26, %00000000,  9*8   ; "T"
+                db 21*8-1, $13, %00000000, 10*8   ; "A"
+                db 21*8-1, $24, %00000000, 11*8   ; "R"
+                db 21*8-1, $26, %00000000, 12*8   ; "T"
+                db 21*8-1, $12, %00000000, 13*8   ; ":"
+                ;
+                db 22*8-1, $25, %00000000, 14*8   ; "S"
+                db 22*8-1, $26, %00000000, 15*8   ; "T"
+                db 22*8-1, $13, %00000000, 16*8   ; "A"
+                db 22*8-1, $24, %00000000, 17*8   ; "R"
+                db 22*8-1, $26, %00000000, 18*8   ; "T"
+                ;
+                db 23*8-1, $21, %00000000, 14*8   ; "O"
+                db 23*8-1, $24, %00000000, 15*8   ; "R"
+                db 23*8-1, $25, %00000000, 17*8   ; "S"
+                db 23*8-1, $26, %00000000, 18*8   ; "T"
+                db 23*8-1, $21, %00000000, 19*8   ; "O"
+                db 23*8-1, $22, %00000000, 20*8   ; "P"
+                ;
+                db 24*8-1, $15, %00000000, 14*8   ; "C"
+                db 24*8-1, $1e, %00000000, 15*8   ; "L"
+                db 24*8-1, $21, %00000000, 16*8   ; "O"
+                db 24*8-1, $15, %00000000, 17*8   ; "C"
+                db 24*8-1, $1d, %00000000, 18*8   ; "K"
+spr_data_end
 
 digit_tiles_rom ; Tiles of digits. Each nybble is a tile index.
                 ; Each digit is 3*5 tile slots:
@@ -188,7 +259,7 @@ init_ppu_mem    ; initialize PPU memory
                 dey
                 bne --
 
-                ; clear name & attribute table 0 & 1
+                ; clear NTs & ATs
 
                 ldy #$20
                 lda #$00
@@ -234,14 +305,15 @@ colon_addr      ; low bytes of PPU addresses of colons
 
 ; --- Main loop - common ------------------------------------------------------
 
-main_loop       bit run_main_loop       ; wait until NMI routine has set flag
+main_loop       ; wait until NMI routine sets flag, then clear it
+                bit run_main_loop
                 bpl main_loop
+                lsr run_main_loop
 
-                lsr run_main_loop       ; clear flag
-
-                lda pad_status          ; store previous joypad status
+                ; store previous joypad status and read joypad
+                lda pad_status
                 sta prev_pad_status
-                jsr read_joypad         ; read joypad
+                jsr read_joypad
 
                 jsr update_seg_buf      ; update segment tile buffer
 
@@ -332,15 +404,25 @@ toggle_timing   ; toggle between NTSC and PAL timing
                 eor #%00000001
                 sta timing
 
-                asl a                   ; update tile of left sprite
-                clc
-                adc #$11
-                sta sprite_data+1*4+1
+                ; update sprite tiles
+                asl a
+                asl a
+                tax                     ; source index
+                ldy #0                  ; destination index
+-               lda timing_strs,x
+                sta sprite_data+1*4+1,y
+                inx
+                iny
+                iny
+                iny
+                iny
+                cpy #(4*4)
+                bne -
 
-                clc                     ; update tile of right sprite
-                adc #1
-                sta sprite_data+2*4+1
                 rts
+
+timing_strs     hex 20 26 25 15         ; "NTSC"
+                hex 00 22 13 1e         ; " PAL"
 
 try_to_start    ; try to start the clock
 
@@ -351,10 +433,15 @@ try_to_start    ; try to start the clock
                 cmp #4
                 bcs ++
 
-+               lda #$ff                ; hide sprites (cursor, "NTSC"/"PAL")
-                sta sprite_data+0*4+0
-                sta sprite_data+1*4+0
-                sta sprite_data+2*4+0
++               lda #$ff                ; hide sprites
+                ldx #0
+-               sta sprite_data+0,x
+                inx
+                inx
+                inx
+                inx
+                cpx #(spr_data_end-init_spr_data)
+                bne -
 
                 jsr init_frame_cntr     ; restart current second
 
@@ -484,14 +571,15 @@ max_digits      db 2, 9, 5, 9, 5, 9     ; maximum values of individual digits
 
 stop_clock      ; return to adjust mode
 
-                ldx #(2*4)              ; show sprites
--               lda init_spr_data+0,x
-                sta sprite_data+0,x
-                dex
-                dex
-                dex
-                dex
-                bpl -
+                ldx #0                  ; show sprites
+-               lda init_spr_data,x
+                sta sprite_data,x
+                inx
+                inx
+                inx
+                inx
+                cpx #(spr_data_end-init_spr_data)
+                bne -
 
                 lda #def_scroll_h       ; restore default scroll values
                 sta scroll_h
@@ -634,4 +722,5 @@ set_ppu_regs    lda scroll_h            ; set scroll value
 
                 base $0000
                 incbin "chr.bin"
+                pad $0800, $ff
                 pad $2000, $ff
